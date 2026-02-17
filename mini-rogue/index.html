@@ -266,7 +266,7 @@
     </div>
     <!-- ▲ キャラ選択 -->
 
-    <section class="card" style="margin-top:12px;">
+    <section class="card" id="mainCard" style="margin-top:12px;">
       <div class="log" id="log"></div>
       <div class="choices" id="choices"></div>
       <div class="footer">
@@ -294,12 +294,11 @@
   ];
 
   function showPlayerPick(){
-    $("choices").innerHTML = "";
-    
     S.mode = "pick";
     ui();
   
     $("pickCard").style.display = "block";
+    $("mainCard").style.display = "none";   // ✅ 下を消す
   
     const wrap = $("pickChoices");
     wrap.innerHTML = "";
@@ -318,15 +317,12 @@
       `;
       b.addEventListener("click", ()=>{
         $("pickCard").style.display = "none";
+        $("mainCard").style.display = "block"; // ✅ 下を戻す
         setPlayerById(p.id);
-        screenChooseRoom(); // ゲーム開始
+        screenChooseRoom();
       });
       wrap.appendChild(b);
     });
-  
-    // ログ側のボタン（戦闘など）を一旦消す
-    setChoices([]);
-    log(`<span class="pill neu">キャラ選択</span>冒険者を選んでください。`);
   }
 
   function setPlayerById(id){
@@ -1041,6 +1037,8 @@
     S.tempSharpen = false;
     S.tempStartBlock = 0;
     S.mode = "chooseRoom";
+    $("pickCard").style.display = "none";
+    $("mainCard").style.display = "block";
     ui();
     showPlayerPick();
   }
