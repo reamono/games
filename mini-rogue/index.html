@@ -282,11 +282,66 @@
   const $ = (id)=>document.getElementById(id);
   const GOAL = 8;
   const BOSS_FLOORS = new Set([4, 8]);
+  const MAX_TREASURE = 2; // 宝箱は最大2回まで
+  const MAX_RELICS   = 7; // レリック所持上限は7個まで
   // --- キャラ演出用 ---
   const playerWrap = $("playerWrap");
   const enemyWrap  = $("enemyWrap");
   const enemyNameEl = $("enemyName");
 
+  // ===== Audio =====
+  const AUDIO = {
+    enabled: false,
+    bgm: new Audio("./assets/bgm.mp3"),
+    se: {
+      attack: new Audio("./assets/se_attack.mp3"),
+      guard:  new Audio("./assets/se_guard.mp3"),
+      heal:   new Audio("./assets/se_heal.mp3"),
+      win:    new Audio("./assets/se_win.mp3"),
+      lose:   new Audio("./assets/se_lose.mp3"),
+      boss:   new Audio("./assets/se_boss.mp3"),
+      relic:  new Audio("./assets/se_relic.mp3"),
+    }
+  };
+  
+  // BGM設定
+  AUDIO.bgm.loop = true;
+  AUDIO.bgm.volume = 0.45;
+  
+  // SE音量（好みで）
+  Object.values(AUDIO.se).forEach(a => a.volume = 0.7);
+  
+  // iOS/Chrome対策：最初のユーザー操作で音を有効化
+  function enableAudioOnce(){
+    if (AUDIO.enabled) return;
+    AUDIO.enabled = true;
+  
+    // 無音再生でアンロック（失敗してもOK）
+    Promise.resolve()
+      .then(() => AUDIO.bgm.play())
+      .then(() => AUDIO.bgm.pause())
+      .catch(()=>{});
+    if (S.mode === "combat") playBGM();
+  }
+  
+  function playSE(key){
+    if(!AUDIO.enabled) return;
+    const a = AUDIO.se[key];
+    if(!a) return;
+    a.currentTime = 0;
+    a.play().catch(()=>{});
+  }
+  
+  function playBGM(){
+    if(!AUDIO.enabled) return;
+    AUDIO.bgm.play().catch(()=>{});
+  }
+  
+  function stopBGM(){
+    AUDIO.bgm.pause();
+    AUDIO.bgm.currentTime = 0;
+  }
+  
   // --- プレイヤー候補 ---
   const PLAYERS = [
     { id:"p1", name:"プレイヤー1", src:"./assets/player.png" },
@@ -392,6 +447,8 @@
     won: false,
     playerId: null,
     playerSrc: "./assets/player.png",
+    lastBossFloorCleared: 0,
+    treasureCount: 0,
   };
 
   // -------------- 効果適用 --------------
@@ -491,6 +548,12 @@
 
   function nextRooms(){
     const pool = ROOM_TYPES.slice();
+    // 宝箱の出現回数制限（2回取ったら以降は宝箱扉が出ない）
+    if (S.treasureCount >= MAX_TREASURE) {
+      for (let i = pool.length - 1; i >= 0; i--) {
+        if (pool[i] === "treasure") pool.splice(i, 1);
+      }
+    }
     if(S.floor <= 2){
       pool.push("rest","shop");
     }
@@ -540,9 +603,17 @@
 
   // -------------- 画面：部屋選択 --------------
   function screenChooseRoom(){
-    // ✅ ボス階は部屋選択なしでボス戦へ
+    console.log("chooseRoom", { floor: S.floor, lastBossFloorCleared: S.lastBossFloorCleared, mode: S.mode });
+    // ✅ ボス階は部屋選択なしでボス戦へ（ただし同階の再ボスを防止）
     if(isBossFloor(S.floor)){
-      return screenCombatStart(true);
+      // もし「倒したはずの階にまだいる」なら、次へ進めて復旧
+      if(S.lastBossFloorCleared === S.floor){
+        if(S.floor >= GOAL) return screenVictory();
+        S.floor++;
+        // 進めた結果がまたボス階なら、通常の判定で入る（ただし今回の仕様では起きない）
+      }else{
+        return screenCombatStart(true);
+      }
     }
 
     S.mode = "chooseRoom";
@@ -586,7 +657,8 @@
     S.mode = "combat";
     S.block = 0;
     S.enemy = isBoss ? bossEnemyForFloor(S.floor) : enemyForFloor(S.floor);
-
+    if(isBoss) playSE("boss");
+    
     // 商人で買った「開始時防御」反映
     if(S.tempStartBlock){
       S.block += S.tempStartBlock;
@@ -599,6 +671,7 @@
     const bossTxt = isBoss ? ` <span class="pill warn">BOSS</span>` : "";
     log(`<span class="pill neu">戦闘</span>${bossTxt}${S.enemy.name}が現れた！<br><small>敵の次の攻撃は <b>${S.enemyIntent}</b></small>`);
     setChoices(makeCombatChoices());
+    playBGM();
   }
 
   function makeCombatChoices(){
@@ -609,6 +682,7 @@
       let dmg = r(atkMin, atkMax);
       playAnim(playerWrap, "attack");
       playAnim(enemyWrap, "hurt");
+      playSE("attack");
       // 「休憩：研ぐ」一時バフ（次の攻撃だけ+4）
       if(S.tempSharpen){
         dmg += 4;
@@ -623,6 +697,7 @@
 
     const doGuard = () => {
       let b = r(5, 8) + S.floor;
+      playSE("guard");
       b = applyRelicsHook("onBlock", b);
       S.block = b;
       S.last = `防御！ 次の被ダメージを <b>${b}</b> 軽減。`;
@@ -631,6 +706,7 @@
 
     const doHeal = () => {
       let h = r(4, 7);
+      playSE("heal");
       h = applyRelicsHook("onHeal", h);
       S.hp = clamp(S.hp + h, 0, S.maxhp);
       S.last = `回復！ HPを <b>${h}</b> 回復。`;
@@ -682,6 +758,7 @@
       // ✅ ボス勝利なら「確定レリック」へ
       if(S.enemy.boss){
         log(`<span class="pill ok">BOSS撃破</span>${S.last}<br>報酬：<b>+${gold}</b>コイン<br><small>ボス報酬：確定レリック</small>`);
+        S.lastBossFloorCleared = S.floor; // ✅ この階のボスは撃破済み
         return screenBossReward(() => {
           if(S.floor >= GOAL){
             return screenVictory();
@@ -726,14 +803,27 @@
 
   // -------------- ✅ ボス報酬（確定レリック） --------------
   function screenBossReward(onDone){
+    playSE("relic");
     S.mode = "bossReward";
     ui();
+
+    if (S.relics.length >= MAX_RELICS) {
+      log(`<span class="pill warn">ボス報酬</span>レリック上限（${MAX_RELICS}）のため獲得できない。`);
+      setChoices([{label:"進む", cls:"primary", onClick: onDone}]);
+      return;
+    }
 
     const candidates = RELICS.filter(x=>!S.relics.includes(x.id));
     const picks = [];
     while(picks.length < 3 && candidates.length>0){
       const rel = candidates.splice(r(0, candidates.length-1), 1)[0];
       picks.push(rel);
+    }
+
+    if(picks.length === 0){
+      log(`<span class="pill warn">ボス報酬</span>…しかしレリックはもう残っていない。`);
+      setChoices([{label:"進む", cls:"primary", onClick: onDone}]);
+      return;
     }
 
     log(`<span class="pill warn">ボス報酬</span>レリックを1つ選べる。`);
@@ -753,14 +843,31 @@
 
   // -------------- 宝箱（レリック3択） --------------
   function screenTreasure(){
+    // レリック上限チェック
+    if (S.relics.length >= MAX_RELICS) {
+      log(`<span class="pill warn">宝箱</span>レリック上限（${MAX_RELICS}）のため獲得できない。`);
+      setChoices([{label:"進む", cls:"primary", onClick: screenChooseRoom}]);
+      return;
+    }
+    
+    playSE("relic");
     S.mode = "treasure";
     ui();
+
+    // 宝箱カウント（この部屋に入った回数）
+    S.treasureCount++;
 
     const candidates = RELICS.filter(x=>!S.relics.includes(x.id));
     const picks = [];
     while(picks.length < 3 && candidates.length>0){
       const rel = candidates.splice(r(0, candidates.length-1), 1)[0];
       picks.push(rel);
+    }
+
+    if(picks.length === 0){
+      log(`<span class="pill warn">宝箱</span>…しかしレリックはもう残っていない。`);
+      setChoices([{label:"進む", cls:"primary", onClick: screenChooseRoom}]);
+      return;
     }
 
     let g = r(6, 10);
@@ -843,7 +950,7 @@
           screenTreasure();
         }},
         { label:`🚶 立ち去る`, cls:"okbtn", onClick: ()=>{
-          log(`<span class="pill.neu">回避</span>面倒には関わらない。`);
+          log(`<span class="pill neu">回避</span>面倒には関わらない。`);
           setChoices([{label:"進む", cls:"primary", onClick: screenChooseRoom}]);
         }},
       ]);
@@ -1008,6 +1115,8 @@
 
   // -------------- 勝利/敗北 --------------
   function screenVictory(){
+    stopBGM();
+    playSE("win");
     S.mode = "victory";
     ui();
     log(`<span class="pill ok">勝利</span><b>8階層を突破した！</b><br><small>勝利数:${S.wins} / 手数:${S.turns} / レリック:${S.relics.length}</small>`);
@@ -1015,6 +1124,8 @@
   }
 
   function screenGameOver(atk, reduced, dmg){
+    stopBGM();
+    playSE("lose");
     S.mode = "gameover";
     ui();
     log(`<span class="pill bad">敗北</span>${S.last}<br>敵の攻撃 ${atk}（軽減 ${reduced}）→ 被ダメ ${dmg}<br><b>HPが0になった…</b><br><small>到達：階層${S.floor}/${GOAL} / 勝利数:${S.wins} / 手数:${S.turns}</small>`);
@@ -1037,6 +1148,7 @@
     S.tempSharpen = false;
     S.tempStartBlock = 0;
     S.mode = "chooseRoom";
+    S.treasureCount = 0;
     $("pickCard").style.display = "none";
     $("mainCard").style.display = "block";
     ui();
@@ -1054,7 +1166,9 @@
       prompt("これをコピーしてね", text);
     }
   });
-
+  
+  document.addEventListener("pointerdown", enableAudioOnce, { once:true });
+  
   start();
 })();
 </script>
