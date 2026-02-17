@@ -189,8 +189,12 @@
 
     #enemyWrap.knockback img  { animation: knockbackEnemy .2s ease-out 1; }
     #playerWrap.knockback img { animation: knockbackPlayer .2s ease-out 1; }
-    #playerWrap.idle img { animation: idleFloat 1.8s ease-in-out infinite; }
-    #enemyWrap.idle  img { animation: idleFloat 2.1s ease-in-out infinite; }
+    #playerWrap.idle:not(.attack):not(.hurt):not(.knockback) img {
+      animation: idleFloat 1.8s ease-in-out infinite;
+    }
+    #enemyWrap.idle:not(.attack):not(.hurt):not(.knockback) img {
+      animation: idleFloat 2.1s ease-in-out infinite;
+    }
   
     #playerWrap.attack img{ animation: lungePlayer .22s ease-out 1; }
     #enemyWrap.attack img{ animation: lungeEnemy .22s ease-out 1; }
@@ -198,15 +202,23 @@
     #playerWrap.hurt img, #enemyWrap.hurt img{ animation: hitFlash .26s ease-out 1; }
     #playerWrap.shake, #enemyWrap.shake{ animation: shake .28s ease-out 1; }
     #playerWrap.heal img{ animation: healGlow .35s ease-out 1; }
+
+    /* hurt + knockback を同時に走らせる */
+    #enemyWrap.hurt.knockback img{
+      animation: hitFlash .26s ease-out 1, knockbackEnemy .18s ease-out 1;
+    }
+    #playerWrap.hurt.knockback img{
+      animation: hitFlash .26s ease-out 1, knockbackPlayer .18s ease-out 1;
+    }
     
-    @media (prefers-reduced-motion: reduce){
+    /* @media (prefers-reduced-motion: reduce){
       #playerWrap.attack img, #enemyWrap.attack img,
       #playerWrap.hurt img, #enemyWrap.hurt img,
       #playerWrap.shake, #enemyWrap.shake,
       #playerWrap.heal img{
         animation: none !important;
       }
-    }
+    } */
     .pickRow{
       display:flex;
       gap:12px;
@@ -707,8 +719,8 @@
 
     const doAttack = () => {
       let dmg = r(atkMin, atkMax);
-      playAnim(playerWrap, "attack");              // 踏み込み
-      playAnim(enemyWrap, "hurt");                 // 被弾フラッシュ
+      playAnim(playerWrap, "attack", 220);         // 踏み込み
+      playAnim(enemyWrap, "hurt", 260);            // 被弾フラッシュ
       playAnim(enemyWrap, "knockback", 200);       // ノックバック
       
       playSE("attack");
@@ -811,8 +823,8 @@
   }
 
   function enemyTurn(){
-    playAnim(enemyWrap, "attack");               // 敵の踏み込み
-    playAnim(playerWrap, "hurt");                // 被弾フラッシュ
+    playAnim(enemyWrap, "attack", 220);          // 敵の踏み込み
+    playAnim(playerWrap, "hurt", 260);           // 被弾フラッシュ
     playAnim(playerWrap, "knockback", 200);      // ノックバック
     const atk = S.enemyIntent;
     const reduced = Math.min(S.block, atk);
