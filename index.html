@@ -1,0 +1,41 @@
+<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>ゲーム集</title>
+  <style>
+    body{
+      margin:0; font-family:system-ui,-apple-system,"Segoe UI",Roboto,"Noto Sans JP",sans-serif;
+      background:#0b1020; color:#e8ecff; padding:18px;
+    }
+    h1{margin:0 0 10px;}
+    p{color:#a8b0d6; margin:0 0 18px;}
+    .grid{display:grid; gap:12px;}
+    a{
+      display:block; padding:14px; border-radius:14px;
+      background:#121a33; color:#e8ecff; text-decoration:none;
+      border:1px solid rgba(255,255,255,.08);
+    }
+    a:hover{border-color: rgba(102,227,255,.35);}
+    .title{font-weight:800;}
+    .sub{color:#a8b0d6; font-size:13px; margin-top:6px;}
+  </style>
+</head>
+<body>
+  <h1>🎮 ゲーム集</h1>
+  <p>スマホで遊べるミニゲーム置き場</p>
+
+  <div class="grid">
+    <a href="./tap-battle/">
+      <div class="title">10秒連打バトル</div>
+      <div class="sub">交代制でタップ数を競う</div>
+    </a>
+
+    <a href="./mini-rogue/">
+      <div class="title">ミニローグ：3択ダンジョン</div>
+      <div class="sub">1プレイ1〜3分のローグライク</div>
+    </a>
+  </div>
+</body>
+</html>
