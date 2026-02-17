@@ -488,6 +488,11 @@
     playerSrc: "./assets/player.png",
     lastBossFloorCleared: 0,
     treasureCount: 0,
+    // --- 戦略要素 ---
+    evadeRate: 0,      // 次の被ダメを割合軽減（例:0.6=60%軽減）
+    healWard: 0,       // 回復したら付く「次の被ダメ-○」（固定軽減）
+    enemyIntentType: "normal", // "normal" | "charge" | "heavy"
+    enemyNextHeavy: 0, // 溜めの時に予告する強攻撃値
   };
 
   // -------------- 効果適用 --------------
@@ -504,6 +509,13 @@
     return out;
   }
 
+  function intentText(){
+    if(!S.enemy) return "-";
+    if(S.enemyIntentType === "charge") return `溜め（次:${S.enemyNextHeavy}）`;
+    if(S.enemyIntentType === "heavy")  return `強攻撃:${S.enemyIntent}`;
+    return `${S.enemyIntent}`;
+  }
+  
   // -------------- UI --------------
   function ui(){
     $("hp").textContent = S.hp;
@@ -520,7 +532,14 @@
       $("ehp").textContent = S.enemy.hp;
       $("emaxhp").textContent = S.enemy.maxhp;
       $("ehpbar").style.width = `${(S.enemy.hp/S.enemy.maxhp)*100}%`;
-      $("eintent").textContent = S.enemyIntent;
+      // 予定攻撃の表示（溜め/強攻撃を見せる）
+      if(S.enemyIntentType === "charge"){
+        $("eintent").textContent = `溜め（次:${S.enemyNextHeavy}）`;
+      }else if(S.enemyIntentType === "heavy"){
+        $("eintent").textContent = `強攻撃:${S.enemyIntent}`;
+      }else{
+        $("eintent").textContent = S.enemyIntent;
+      }
       enemyNameEl.textContent = S.enemy.name || "";
       setEnemyVisible(true);
       // ボスなら見た目強化
@@ -639,6 +658,38 @@
   }
 
   function rollEnemyIntent(){
+    // 通常はいつもの数値攻撃
+    S.enemyIntentType = "normal";
+    S.enemyNextHeavy = 0;
+  
+    // ボスだけ：たまに「溜め」を出す（次ターン強攻撃を予告）
+    if(S.enemy?.boss){
+      // すでに溜め済みなら、次は強攻撃を確定で出す
+      if(S.enemy._charged){
+        S.enemyIntentType = "heavy";
+        S.enemyIntent = S.enemy._heavyValue || r(S.enemy.atkMin, S.enemy.atkMax);
+        S.enemy._charged = false;
+        S.enemy._heavyValue = 0;
+        return;
+      }
+  
+      // ここが発生率：0.30くらいがちょうど良い（好みで調整）
+      const chargeChance = 0.30;
+      if(Math.random() < chargeChance){
+        // 溜め：このターンは攻撃しない（＝intentは「溜め」表示にする）
+        S.enemyIntentType = "charge";
+        const heavy = r(S.enemy.atkMin + 4, S.enemy.atkMax + 8); // 強攻撃は少し上振れ
+        S.enemyNextHeavy = heavy;
+        S.enemy._charged = true;
+        S.enemy._heavyValue = heavy;
+  
+        // intentの数値自体は使わないけど、念のため0にしておく
+        S.enemyIntent = 0;
+        return;
+      }
+    }
+  
+    // 通常攻撃
     S.enemyIntent = r(S.enemy.atkMin, S.enemy.atkMax);
   }
 
@@ -708,7 +759,7 @@
     rollEnemyIntent();
     ui();
     const bossTxt = isBoss ? ` <span class="pill warn">BOSS</span>` : "";
-    log(`<span class="pill neu">戦闘</span>${bossTxt}${S.enemy.name}が現れた！<br><small>敵の次の攻撃は <b>${S.enemyIntent}</b></small>`);
+    log(`<span class="pill neu">戦闘</span>${bossTxt}${S.enemy.name}が現れた！<br><small>敵の次の攻撃は <b>${intentText()}</b></small>`);
     setChoices(makeCombatChoices());
     playBGM();
     setIdle(true);
@@ -751,10 +802,19 @@
       playSE("heal");
       h = applyRelicsHook("onHeal", h);
       S.hp = clamp(S.hp + h, 0, S.maxhp);
-      S.last = `回復！ HPを <b>${h}</b> 回復。`;
+      // 回復の追加効果：次の被ダメを固定で-2（フロアで少し伸ばす）
+      S.healWard = 2 + Math.floor(S.floor / 3); // 例: 1-2F=2, 3-5F=3, 6-8F=4
+      S.last = `回復！ HPを <b>${h}</b> 回復。<br><small>加護：次の被ダメ -<b>${S.healWard}</b></small>`;
       afterPlayerAction();
     };
 
+    const doEvade = () => {
+      // 次の被ダメを60%軽減（強いので固定で60%くらいが扱いやすい）
+      S.evadeRate = 0.60;
+      S.last = `🪽 回避の構え！ 次の被ダメージを <b>60%</b> 軽減。`;
+      afterPlayerAction();
+    };
+    
     const baseP = 0.55;
     const p = applyRelicsHook("onGambleChance", baseP);
 
@@ -774,6 +834,7 @@
       { label:`⚔️ 攻撃 <span class="muted">(${atkMin}〜${atkMax})</span>`, cls:"primary", onClick: doAttack },
       { label:`🛡️ 防御 <span class="muted">(軽減 5〜${8+S.floor}+効果)</span>`, cls:"okbtn", onClick: doGuard },
       { label:`💚 回復 <span class="muted">(4〜7+効果)</span>`, cls:"okbtn", onClick: doHeal },
+      { label:`🪽 回避 <span class="muted">(次の被ダメ-60%)</span>`, cls:"okbtn", onClick: doEvade },
     ];
 
     if(chance(0.35)){
@@ -824,12 +885,33 @@
   }
 
   function enemyTurn(){
+    // 溜めターン：攻撃しない
+    if(S.enemyIntentType === "charge"){
+      // 次のintent（強攻撃）へ更新して、プレイヤーに見せる
+      rollEnemyIntent();
+      ui();
+      log(`${S.last}<br>敵は力を溜めている…！<br><small>次の攻撃は <b>${$("eintent").textContent}</b></small>`);
+      setChoices(makeCombatChoices());
+      return;
+    }
     playAnim(enemyWrap, "attack", 220);          // 敵の踏み込み
     playAnim(playerWrap, "hurt", 260);           // 被弾フラッシュ
     playAnim(playerWrap, "knockback", 200);      // ノックバック
     const atk = S.enemyIntent;
     const reduced = Math.min(S.block, atk);
-    const dmg = atk - reduced;
+    let dmg = atk - reduced;
+    
+    // 回復の追加効果（固定軽減）：次の被ダメを -healWard
+    if(S.healWard){
+      dmg = Math.max(0, dmg - S.healWard);
+      S.healWard = 0;
+    }
+    
+    // 回避（割合軽減）
+    if(S.evadeRate){
+      dmg = Math.floor(dmg * (1 - S.evadeRate));
+      S.evadeRate = 0;
+    }
     S.block = 0;
     S.hp = clamp(S.hp - dmg, 0, S.maxhp);
 
@@ -840,7 +922,7 @@
       return screenGameOver(atk, reduced, dmg);
     }
 
-    log(`${S.last}<br>敵の攻撃 ${atk}（軽減 ${reduced}）→ 被ダメ ${dmg}<br><small>敵の次の攻撃は <b>${S.enemyIntent}</b></small>`);
+    log(`${S.last}<br>敵の攻撃 ${atk}（軽減 ${reduced}）→ 被ダメ ${dmg}<br><small>敵の次の攻撃は <b>${intentText()}</b></small>`);
     setChoices(makeCombatChoices());
   }
 
