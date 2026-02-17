@@ -106,13 +106,19 @@
     .sprite.enemy{ justify-content:flex-end; }
 
     #enemyWrap{
+      opacity:0;
+      transform: translateX(12px);
       transition: opacity .2s ease, transform .2s ease;
     }
-    /* 敵は戦闘以外で隠す（JSで切替） */
-    #enemyWrap.hidden{ opacity:0; pointer-events:none; transform: translateX(12px); }
-
-    #enemyWrap{ opacity:0; transform: translateX(12px); }
-    #enemyWrap:not(.hidden){ opacity:1; transform: translateX(0); }
+    #enemyWrap.hidden{
+      opacity:0;
+      pointer-events:none;
+      transform: translateX(12px);
+    }
+    #enemyWrap:not(.hidden){
+      opacity:1;
+      transform: translateX(0);
+    }
     
     /* ボス感：ちょい大きく＋発光 */
     #enemyWrap.boss img{
@@ -181,6 +187,28 @@
         animation: none !important;
       }
     }
+    .pickRow{
+      display:flex;
+      gap:12px;
+      align-items:center;
+    }
+    .pickThumb{
+      width:64px;
+      height:64px;
+      border-radius:14px;
+      background:rgba(0,0,0,.18);
+      border:1px solid rgba(255,255,255,.08);
+      display:flex;
+      align-items:center;
+      justify-content:center;
+      overflow:hidden;
+      flex:0 0 auto;
+    }
+    .pickThumb img{
+      width:100%;
+      height:100%;
+      object-fit:contain;
+    }
   </style>
 </head>
 <body>
@@ -228,6 +256,16 @@
       <!-- ▲ 戦闘ビジュアル -->
     </section>
 
+    <!-- ▼ キャラ選択（ゲーム開始前） -->
+    <div class="card" id="pickCard" style="margin-top:12px; display:none;">
+      <div class="log">
+        <span class="pill neu">キャラ選択</span>
+        最初に使うプレイヤーを選んでください。
+      </div>
+      <div class="choices" id="pickChoices"></div>
+    </div>
+    <!-- ▲ キャラ選択 -->
+
     <section class="card" style="margin-top:12px;">
       <div class="log" id="log"></div>
       <div class="choices" id="choices"></div>
@@ -248,6 +286,63 @@
   const playerWrap = $("playerWrap");
   const enemyWrap  = $("enemyWrap");
   const enemyNameEl = $("enemyName");
+
+  // --- プレイヤー候補 ---
+  const PLAYERS = [
+    { id:"p1", name:"プレイヤー1", src:"./assets/player.png" },
+    { id:"p2", name:"プレイヤー2", src:"./assets/player2.png" },
+  ];
+
+  function showPlayerPick(){
+    $("choices").innerHTML = "";
+    
+    S.mode = "pick";
+    ui();
+  
+    $("pickCard").style.display = "block";
+  
+    const wrap = $("pickChoices");
+    wrap.innerHTML = "";
+  
+    PLAYERS.forEach(p=>{
+      const b = document.createElement("button");
+      b.className = "primary";
+      b.innerHTML = `
+        <div class="pickRow">
+          <div class="pickThumb"><img src="${p.src}" alt=""></div>
+          <div>
+            <b>${p.name}</b><br>
+            <span class="muted">このキャラで冒険する</span>
+          </div>
+        </div>
+      `;
+      b.addEventListener("click", ()=>{
+        $("pickCard").style.display = "none";
+        setPlayerById(p.id);
+        screenChooseRoom(); // ゲーム開始
+      });
+      wrap.appendChild(b);
+    });
+  
+    // ログ側のボタン（戦闘など）を一旦消す
+    setChoices([]);
+    log(`<span class="pill neu">キャラ選択</span>冒険者を選んでください。`);
+  }
+
+  function setPlayerById(id){
+    const p = PLAYERS.find(x=>x.id===id) || PLAYERS[0];
+    S.playerId = p.id;
+    S.playerSrc = p.src;
+  
+    const img = $("playerImg");
+    img.src = p.src;
+    if(p.id==="p1"){
+      S.maxhp = 24; S.hp = 24;
+    }else if(p.id==="p2"){
+      S.gold += 15;
+    }
+    ui();
+  }
   
   // アニメを確実に再生するため、classを付け直す
   function playAnim(el, cls, ms=350){
@@ -299,6 +394,8 @@
     tempStartBlock: 0,
     over: false,
     won: false,
+    playerId: null,
+    playerSrc: "./assets/player.png",
   };
 
   // -------------- 効果適用 --------------
@@ -366,6 +463,10 @@
 
     // ✅ リスタートは「負けた時だけ」表示
     $("restart").style.display = (S.mode === "gameover") ? "inline-block" : "none";
+
+    if(S.mode === "pick"){
+      setEnemyVisible(false);
+    }
   }
 
   function log(html){ $("log").innerHTML = html; }
@@ -941,7 +1042,7 @@
     S.tempStartBlock = 0;
     S.mode = "chooseRoom";
     ui();
-    screenChooseRoom();
+    showPlayerPick();
   }
 
   $("restart").addEventListener("click", start);
