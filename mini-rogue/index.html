@@ -1170,6 +1170,44 @@
   document.addEventListener("pointerdown", enableAudioOnce, { once:true });
   
   start();
+
+  // ===== DEBUG (DevToolsから触る用) =====
+  window.__DBG = {
+    S,
+    ui,
+    log,
+    setChoices,
+    screenChooseRoom,
+    screenCombatStart,
+    screenTreasure,
+    screenBossReward,
+    enemyTurn,
+    afterPlayerAction,
+    // 即撃破（戦闘中に使う）
+    killEnemy(){
+      if(!S.enemy) return console.warn("enemyがいません");
+      S.enemy.hp = 0;
+      afterPlayerAction();
+    },
+    // ボス階へワープして開始
+    goBoss(floor=4){
+      S.floor = floor;
+      S.lastBossFloorCleared = 0;
+      screenChooseRoom(); // ボス階なら自動でボス戦へ入る
+    },
+    // 任意階へワープして扉選択へ
+    goFloor(floor=1){
+      S.floor = floor;
+      screenChooseRoom();
+    },
+    // ボス撃破済み扱いにして連戦チェック
+    markBossCleared(){
+      S.lastBossFloorCleared = S.floor;
+      console.log("lastBossFloorCleared =", S.lastBossFloorCleared);
+    }
+  };
+  console.log("DEBUG: window.__DBG ready");
+  
 })();
 </script>
 </body>
