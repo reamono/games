@@ -64,13 +64,15 @@
       padding:6px 10px; border-radius:999px; font-size:12px; font-weight:900;
       background:rgba(0,0,0,.18); border:1px solid rgba(255,255,255,.08);
     }
+    /* リスタートは負けた時だけ表示（JSで切替） */
+    #restart{ display:none; }
   </style>
 </head>
 <body>
 <div class="app">
   <header>
     <h1>ミニローグ+（宝箱・イベント・3択）</h1>
-    <p class="sub">各階で<b>3つの扉</b>を選んで進む。宝箱でレリック入手、イベントで一発逆転。<b>8階層</b>突破で勝利！</p>
+    <p class="sub">各階で<b>3つの扉</b>を選んで進む。<b>4階/8階はボス</b>（強敵＋確定レリック）。<b>8階突破</b>で勝利！</p>
   </header>
   <main>
     <section class="card">
@@ -111,6 +113,7 @@
 (() => {
   const $ = (id)=>document.getElementById(id);
   const GOAL = 8;
+  const BOSS_FLOORS = new Set([4, 8]);
 
   // -------------- 便利関数 --------------
   const r = (min,max)=>Math.floor(Math.random()*(max-min+1))+min;
@@ -118,8 +121,9 @@
   const pick = (arr)=>arr[Math.floor(Math.random()*arr.length)];
   const chance = (p)=>Math.random()<p;
 
+  const isBossFloor = (floor)=>BOSS_FLOORS.has(floor);
+
   // -------------- レリック定義 --------------
-  // なるべく “説明が短く、効果がわかりやすい” を意識
   const RELICS = [
     { id:"spike", name:"トゲの指輪", desc:"攻撃+1（毎回）", onAtk:(s, dmg)=>dmg+1 },
     { id:"bandage", name:"包帯", desc:"戦闘勝利でHP+2", onWin:(s)=>{ s.hp = clamp(s.hp+2, 0, s.maxhp); } },
@@ -141,23 +145,24 @@
     gold: 0,
     wins: 0,
     relics: [],
-    mode: "chooseRoom", // chooseRoom / combat / treasure / event / rest / shop / gameover / victory
+    mode: "chooseRoom",
     enemy: null,
     enemyIntent: 0,
     turns: 0,
-    last: ""
+    last: "",
+    tempStartBlock: 0,
+    over: false,
+    won: false,
   };
 
   // -------------- 効果適用 --------------
   function applyRelicsHook(hookName, ...args){
-    // hook: onPick, onAtk, onBlock, onHeal, onWin, onRest, onGainGold, onGambleChance
     let out = args[0];
     for(const id of S.relics){
       const rel = RELICS.find(x=>x.id===id);
       const fn = rel && rel[hookName];
       if(typeof fn === "function"){
         const res = fn(S, out, ...args.slice(1));
-        // 値返す系は上書き（undefinedならそのまま）
         if(res !== undefined) out = res;
       }
     }
@@ -205,6 +210,9 @@
         wrap.appendChild(t);
       }
     }
+
+    // ✅ リスタートは「負けた時だけ」表示
+    $("restart").style.display = (S.mode === "gameover") ? "inline-block" : "none";
   }
 
   function log(html){ $("log").innerHTML = html; }
@@ -232,10 +240,8 @@
   };
 
   function nextRooms(){
-    // 3択。序盤はショップ少なめ、終盤は戦闘多めに
     const pool = ROOM_TYPES.slice();
     if(S.floor <= 2){
-      // 序盤は店/休憩が出やすい
       pool.push("rest","shop");
     }
     if(S.floor >= GOAL-2){
@@ -244,7 +250,6 @@
     const rooms = [];
     while(rooms.length<3){
       const t = pick(pool);
-      // 同じタイプ3連は避ける（ゆるく）
       if(rooms.filter(x=>x===t).length>=2) continue;
       rooms.push(t);
     }
@@ -259,7 +264,23 @@
       maxhp: base,
       hp: base,
       atkMin: 2 + f,
-      atkMax: 4 + f*2
+      atkMax: 4 + f*2,
+      boss: false
+    };
+  }
+
+  function bossEnemyForFloor(f){
+    // ボスは「硬い＋痛い」＋少し派手
+    const base = 18 + f*5;     // 4F: 38 / 8F: 58
+    const atkMin = 6 + f;      // 4F:10 / 8F:14
+    const atkMax = 10 + f*2;   // 4F:18 / 8F:26
+    return {
+      name: (f===8) ? "深層の王" : "門番の巨獣",
+      maxhp: base,
+      hp: base,
+      atkMin,
+      atkMax,
+      boss: true
     };
   }
 
@@ -269,13 +290,18 @@
 
   // -------------- 画面：部屋選択 --------------
   function screenChooseRoom(){
+    // ✅ ボス階は部屋選択なしでボス戦へ
+    if(isBossFloor(S.floor)){
+      return screenCombatStart(true);
+    }
+
     S.mode = "chooseRoom";
     S.block = 0;
     S.enemy = null;
     ui();
 
     const rooms = nextRooms();
-    log(`<span class="pill neu">階層${S.floor}</span>扉が3つある。どれに進む？<br><small>※ 8階層突破で勝利</small>`);
+    log(`<span class="pill neu">階層${S.floor}</span>扉が3つある。どれに進む？<br><small>※ 4階/8階はボス戦（確定レリック）</small>`);
 
     setChoices(rooms.map(t=>{
       const info = ROOM_LABEL[t];
@@ -298,7 +324,7 @@
   }
 
   function enterRoom(t){
-    if(t==="combat") return screenCombatStart();
+    if(t==="combat") return screenCombatStart(false);
     if(t==="treasure") return screenTreasure();
     if(t==="event") return screenEvent();
     if(t==="rest") return screenRest();
@@ -306,14 +332,22 @@
   }
 
   // -------------- 戦闘 --------------
-  function screenCombatStart(){
+  function screenCombatStart(isBoss){
     S.mode = "combat";
     S.block = 0;
-    S.enemy = enemyForFloor(S.floor);
+    S.enemy = isBoss ? bossEnemyForFloor(S.floor) : enemyForFloor(S.floor);
+
+    // 商人で買った「開始時防御」反映
+    if(S.tempStartBlock){
+      S.block += S.tempStartBlock;
+      S.tempStartBlock = 0;
+    }
+
     rollEnemyIntent();
     ui();
 
-    log(`<span class="pill neu">戦闘</span>${S.enemy.name}が現れた！<br><small>敵の次の攻撃は <b>${S.enemyIntent}</b></small>`);
+    const bossTxt = isBoss ? ` <span class="pill warn">BOSS</span>` : "";
+    log(`<span class="pill neu">戦闘</span>${bossTxt}${S.enemy.name}が現れた！<br><small>敵の次の攻撃は <b>${S.enemyIntent}</b></small>`);
     setChoices(makeCombatChoices());
   }
 
@@ -323,6 +357,13 @@
 
     const doAttack = () => {
       let dmg = r(atkMin, atkMax);
+
+      // 「休憩：研ぐ」一時バフ（次の攻撃だけ+4）
+      if(S.tempSharpen){
+        dmg += 4;
+        S.tempSharpen = false;
+      }
+
       dmg = applyRelicsHook("onAtk", dmg);
       S.enemy.hp = clamp(S.enemy.hp - dmg, 0, S.enemy.maxhp);
       S.last = `あなたの攻撃！ 敵に <b>${dmg}</b> ダメージ。`;
@@ -345,14 +386,13 @@
       afterPlayerAction();
     };
 
-    // ローグ感：時々“賭け”が出る（危険だが強い）
     const baseP = 0.55;
     const p = applyRelicsHook("onGambleChance", baseP);
 
     const doGamble = () => {
       const hit = chance(p);
       const dmg = hit ? r(10, 16) + Math.floor(S.floor/2) : 0;
-      const self = hit ? 0 : r(2, 5); // 失敗で自傷
+      const self = hit ? 0 : r(2, 5);
       S.enemy.hp = clamp(S.enemy.hp - dmg, 0, S.enemy.maxhp);
       S.hp = clamp(S.hp - self, 0, S.maxhp);
       S.last = hit
@@ -367,12 +407,10 @@
       { label:`💚 回復 <span class="muted">(4〜7+効果)</span>`, cls:"okbtn", onClick: doHeal },
     ];
 
-    // 35%で賭けを混ぜる（置き換え）
     if(chance(0.35)){
       const idx = r(0,2);
       list[idx] = { label:`🎲 賭け <span class="muted">(成功${Math.round(p*100)}% / 失敗で自傷)</span>`, cls:"badbtn", onClick: doGamble };
     }
-
     return list;
   }
 
@@ -380,34 +418,38 @@
     S.turns++;
 
     if(S.enemy.hp <= 0){
-      // 勝利
       S.wins++;
-      // 報酬：コイン + たまに小回復
-      let gold = r(8, 14) + S.floor;
+
+      // 報酬：コイン
+      let gold = r(8, 14) + S.floor + (S.enemy.boss ? 10 : 0);
       gold = applyRelicsHook("onGainGold", gold, "combat");
       S.gold += gold;
 
-      // レリック勝利効果
       applyRelicsHook("onWin", 0);
-
-      // 次階へ
-      const reachGoal = (S.floor >= GOAL);
       ui();
 
-      if(reachGoal){
-        S.mode = "victory";
-        log(`<span class="pill ok">勝利</span>${S.last}<br>報酬：<b>+${gold}</b>コイン<br><b>最終階層を突破！</b><br><small>手数:${S.turns} / レリック:${S.relics.length}</small>`);
-        setChoices([{label:"もう一回", cls:"primary", onClick:start}]);
-        return;
+      // ✅ ボス勝利なら「確定レリック」へ
+      if(S.enemy.boss){
+        log(`<span class="pill ok">BOSS撃破</span>${S.last}<br>報酬：<b>+${gold}</b>コイン<br><small>ボス報酬：確定レリック</small>`);
+        return screenBossReward(() => {
+          if(S.floor >= GOAL){
+            return screenVictory();
+          }
+          S.floor++;
+          return screenChooseRoom();
+        });
       }
 
+      // 通常勝利
+      if(S.floor >= GOAL){
+        return screenVictory();
+      }
       S.floor++;
       log(`<span class="pill ok">撃破</span>${S.last}<br>報酬：<b>+${gold}</b>コイン<br><small>次の階層へ進む…</small>`);
       setChoices([{label:"進む", cls:"primary", onClick: screenChooseRoom}]);
       return;
     }
 
-    // 敵の攻撃
     enemyTurn();
   }
 
@@ -418,27 +460,22 @@
     S.block = 0;
     S.hp = clamp(S.hp - dmg, 0, S.maxhp);
 
-    // 次の意図
     rollEnemyIntent();
     ui();
 
     if(S.hp <= 0){
-      S.mode = "gameover";
-      log(`<span class="pill bad">敗北</span>${S.last}<br>敵の攻撃 ${atk}（軽減 ${reduced}）→ 被ダメ ${dmg}<br><b>HPが0になった…</b><br><small>到達：階層${S.floor}/${GOAL} / 勝利数:${S.wins} / 手数:${S.turns}</small>`);
-      setChoices([{label:"再挑戦", cls:"primary", onClick:start}]);
-      return;
+      return screenGameOver(atk, reduced, dmg);
     }
 
     log(`${S.last}<br>敵の攻撃 ${atk}（軽減 ${reduced}）→ 被ダメ ${dmg}<br><small>敵の次の攻撃は <b>${S.enemyIntent}</b></small>`);
     setChoices(makeCombatChoices());
   }
 
-  // -------------- 宝箱（レリック3択） --------------
-  function screenTreasure(){
-    S.mode = "treasure";
+  // -------------- ✅ ボス報酬（確定レリック） --------------
+  function screenBossReward(onDone){
+    S.mode = "bossReward";
     ui();
 
-    // 既に持ってるのは除外して3つ提示
     const candidates = RELICS.filter(x=>!S.relics.includes(x.id));
     const picks = [];
     while(picks.length < 3 && candidates.length>0){
@@ -446,7 +483,33 @@
       picks.push(rel);
     }
 
-    // コイン少し
+    log(`<span class="pill warn">ボス報酬</span>レリックを1つ選べる。`);
+
+    setChoices(picks.map(rel=>({
+      label:`🏆 <b>${rel.name}</b><br><span class="muted">${rel.desc}</span>`,
+      cls:"warnbtn",
+      onClick: ()=>{
+        S.relics.push(rel.id);
+        if(typeof rel.onPick === "function") rel.onPick(S);
+        ui();
+        log(`<span class="pill warn">入手</span><b>${rel.name}</b> を手に入れた！<br><small>${rel.desc}</small>`);
+        setChoices([{label:"進む", cls:"primary", onClick: onDone}]);
+      }
+    })));
+  }
+
+  // -------------- 宝箱（レリック3択） --------------
+  function screenTreasure(){
+    S.mode = "treasure";
+    ui();
+
+    const candidates = RELICS.filter(x=>!S.relics.includes(x.id));
+    const picks = [];
+    while(picks.length < 3 && candidates.length>0){
+      const rel = candidates.splice(r(0, candidates.length-1), 1)[0];
+      picks.push(rel);
+    }
+
     let g = r(6, 10);
     g = applyRelicsHook("onGainGold", g, "treasure");
     S.gold += g;
@@ -458,7 +521,6 @@
       cls:"warnbtn",
       onClick: ()=>{
         S.relics.push(rel.id);
-        // 取得時効果
         if(typeof rel.onPick === "function") rel.onPick(S);
         ui();
         log(`<span class="pill warn">入手</span><b>${rel.name}</b> を手に入れた！<br><small>${rel.desc}</small>`);
@@ -467,7 +529,7 @@
     })));
   }
 
-  // -------------- イベント（選択で結果が変わる） --------------
+  // -------------- イベント --------------
   function screenEvent(){
     S.mode = "event";
     ui();
@@ -525,11 +587,10 @@
           }
           S.gold -= cost;
           ui();
-          // 即宝箱へ（イベント報酬）
           screenTreasure();
         }},
         { label:`🚶 立ち去る`, cls:"okbtn", onClick: ()=>{
-          log(`<span class="pill neu">回避</span>面倒には関わらない。`);
+          log(`<span class="pill.neu">回避</span>面倒には関わらない。`);
           setChoices([{label:"進む", cls:"primary", onClick: screenChooseRoom}]);
         }},
       ]);
@@ -625,7 +686,7 @@
     S.mode = "gameover";
     ui();
     log(`<span class="pill bad">敗北</span>イベントの結果で倒れた…<br><small>到達：階層${S.floor}/${GOAL} / 勝利数:${S.wins} / 手数:${S.turns}</small>`);
-    setChoices([{label:"再挑戦", cls:"primary", onClick:start}]);
+    setChoices([]); // 負けたら下のリスタートボタンで再開
   }
 
   // -------------- 休憩 --------------
@@ -634,8 +695,7 @@
     ui();
 
     const baseHeal = r(6, 10);
-    let heal = baseHeal;
-    heal = applyRelicsHook("onRest", heal); // 休憩強化系
+    let heal = applyRelicsHook("onRest", baseHeal);
     log(`<span class="pill ok">休憩</span>安全地帯だ。どうする？`);
 
     setChoices([
@@ -646,7 +706,6 @@
         setChoices([{label:"進む", cls:"primary", onClick: screenChooseRoom}]);
       }},
       { label:`🔧 研ぐ <span class="muted">(次の戦闘の最初の攻撃+4)</span>`, cls:"primary", onClick: ()=>{
-        // シンプルな一時バフ：疑似レリックとしてフラグ
         S.tempSharpen = true;
         ui();
         log(`<span class="pill neu">準備</span>武器を研いだ。次の戦闘の最初の攻撃が強化される。`);
@@ -694,6 +753,21 @@
     ]);
   }
 
+  // -------------- 勝利/敗北 --------------
+  function screenVictory(){
+    S.mode = "victory";
+    ui();
+    log(`<span class="pill ok">勝利</span><b>8階層を突破した！</b><br><small>勝利数:${S.wins} / 手数:${S.turns} / レリック:${S.relics.length}</small>`);
+    setChoices([{label:"もう一回", cls:"primary", onClick:start}]);
+  }
+
+  function screenGameOver(atk, reduced, dmg){
+    S.mode = "gameover";
+    ui();
+    log(`<span class="pill bad">敗北</span>${S.last}<br>敵の攻撃 ${atk}（軽減 ${reduced}）→ 被ダメ ${dmg}<br><b>HPが0になった…</b><br><small>到達：階層${S.floor}/${GOAL} / 勝利数:${S.wins} / 手数:${S.turns}</small>`);
+    setChoices([]); // ✅ 負けたらリスタートボタンで再開
+  }
+
   // -------------- 共有/再起動 --------------
   function start(){
     S.floor = 1;
@@ -709,31 +783,10 @@
     S.last = "";
     S.tempSharpen = false;
     S.tempStartBlock = 0;
+    S.mode = "chooseRoom";
     ui();
     screenChooseRoom();
   }
-
-  // 休憩の“研ぐ”、商人の“鉄壁”を戦闘に反映させるため、戦闘開始フック
-  const originalCombatStart = screenCombatStart;
-  screenCombatStart = function(){
-    originalCombatStart();
-    // 開始時防御
-    if(S.tempStartBlock){
-      S.block = (S.block || 0) + S.tempStartBlock;
-      S.tempStartBlock = 0;
-    }
-    // 研ぎバフは “最初の攻撃” を強化：onAtkの前に加算するため、簡易的に敵HPを減らす方式ではなく
-    // makeCombatChoices内に組み込むのは重いので、ここでは “次の攻撃に+4” をフラグで管理し、攻撃時に消費
-    // → なので applyRelicsHookの前に +4 を入れる仕組みを追加
-    // 実装：onAtkに入る前に加算したいが、現状はmakeCombatChoices内でdmg確定してるので、フックを追加する
-    // 手早く：フラグが立ってたら “敵の次の攻撃値を少し下げる”等はズレるので、攻撃時にだけ上乗せする処理を下で追加
-    ui();
-  };
-
-  // makeCombatChoices 内の攻撃に “研ぎ” を入れるための差し込み（上の定義を置き換えるのは面倒なので、軽く実装）
-  // → 攻撃処理で S.tempSharpen を見て dmg+4 してフラグOFF（上の関数でやるには組み直しが必要なので、簡易対応として
-  //    applyRelicsHook("onAtk") の前に加算する処理を入れている（既にそうなっている））
-  // ※このコメントは説明用。動作は問題ありません。
 
   $("restart").addEventListener("click", start);
   $("share").addEventListener("click", async ()=>{
@@ -746,11 +799,6 @@
       prompt("これをコピーしてね", text);
     }
   });
-
-  // “研ぐ” の攻撃+4をちゃんと反映するため、onAtkの手前で加算したい
-  // 既存の処理では onAtk は applyRelicsHook だけなので、ここでフックを1つ増やす：
-  // → applyRelicsHook に入れる前に +4 するため、makeCombatChoicesの doAttack で直接処理するのが確実
-  // ただし上の関数は既に定義済みなので、ユーザー体感としては十分ローグっぽく遊べる範囲にしています。
 
   start();
 })();
