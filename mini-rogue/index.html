@@ -353,7 +353,6 @@
       .then(() => AUDIO.bgm.play())
       .then(() => AUDIO.bgm.pause())
       .catch(()=>{});
-    if (S.mode === "combat") playBGM();
   }
   
   function playSE(key){
@@ -406,6 +405,8 @@
         $("pickCard").style.display = "none";
         $("mainCard").style.display = "block"; // ✅ 下を戻す
         setPlayerById(p.id);
+        enableAudioOnce(); // ✅ ユーザー操作内でアンロック
+        playBGM();         // ✅ ここでBGM開始（以降ずっと流れる）
         screenChooseRoom();
       });
       wrap.appendChild(b);
