@@ -66,6 +66,121 @@
     }
     /* リスタートは負けた時だけ表示（JSで切替） */
     #restart{ display:none; }
+    /* ===== 戦闘ビジュアル ===== */
+    .stage{
+      margin-top:12px;
+      position:relative;
+      height:230px;
+      border-radius:16px;
+      overflow:hidden;
+      border:1px solid rgba(255,255,255,.08);
+      background:
+        radial-gradient(500px 200px at 30% 10%, rgba(102,227,255,.18), transparent 60%),
+        radial-gradient(500px 220px at 80% 30%, rgba(109,255,155,.14), transparent 60%),
+        rgba(0,0,0,.18);
+      display:flex;
+      align-items:flex-end;
+      justify-content:space-between;
+      padding:12px;
+    }
+    
+    .sprite{
+      position:relative;
+      display:flex;
+      align-items:flex-end;
+      justify-content:center;
+      width:48%;
+      height:100%;
+    }
+    
+    .sprite img{
+      max-height:100%;
+      max-width:100%;
+      object-fit:contain;
+      filter: drop-shadow(0 10px 18px rgba(0,0,0,.45));
+      transform-origin: bottom center;
+    }
+    
+    /* 自キャラは少し寄せる */
+    .sprite.player{ justify-content:flex-start; }
+    .sprite.enemy{ justify-content:flex-end; }
+
+    #enemyWrap{
+      transition: opacity .2s ease, transform .2s ease;
+    }
+    /* 敵は戦闘以外で隠す（JSで切替） */
+    #enemyWrap.hidden{ opacity:0; pointer-events:none; transform: translateX(12px); }
+
+    #enemyWrap{ opacity:0; transform: translateX(12px); }
+    #enemyWrap:not(.hidden){ opacity:1; transform: translateX(0); }
+    
+    /* ボス感：ちょい大きく＋発光 */
+    #enemyWrap.boss img{
+      transform: scale(1.06);
+      filter: drop-shadow(0 0 18px rgba(255,211,109,.25)) drop-shadow(0 10px 18px rgba(0,0,0,.45));
+    }
+    
+    .stageHud{
+      position:absolute;
+      left:12px; right:12px; top:10px;
+      display:flex;
+      justify-content:flex-end;
+      pointer-events:none;
+    }
+    .enemyName{
+      padding:6px 10px;
+      border-radius:999px;
+      font-size:12px;
+      font-weight:900;
+      background:rgba(0,0,0,.35);
+      border:1px solid rgba(255,255,255,.10);
+      color: rgba(232,236,255,.95);
+    }
+    
+    /* ===== アニメーション ===== */
+    @keyframes lungePlayer{
+      0%{ transform: translateX(0) scale(1); }
+      45%{ transform: translateX(10px) scale(1.02); }
+      100%{ transform: translateX(0) scale(1); }
+    }
+    @keyframes lungeEnemy{
+      0%{ transform: translateX(0) scale(1); }
+      45%{ transform: translateX(-10px) scale(1.02); }
+      100%{ transform: translateX(0) scale(1); }
+    }
+    @keyframes hitFlash{
+      0%{ filter: brightness(1) drop-shadow(0 10px 18px rgba(0,0,0,.45)); }
+      30%{ filter: brightness(1.8) drop-shadow(0 0 14px rgba(255,107,138,.35)) drop-shadow(0 10px 18px rgba(0,0,0,.45)); }
+      100%{ filter: brightness(1) drop-shadow(0 10px 18px rgba(0,0,0,.45)); }
+    }
+    @keyframes shake{
+      0%{ transform: translateX(0); }
+      25%{ transform: translateX(-3px); }
+      50%{ transform: translateX(3px); }
+      75%{ transform: translateX(-2px); }
+      100%{ transform: translateX(0); }
+    }
+    @keyframes healGlow{
+      0%{ filter: brightness(1) drop-shadow(0 10px 18px rgba(0,0,0,.45)); }
+      35%{ filter: brightness(1.4) drop-shadow(0 0 18px rgba(109,255,155,.35)) drop-shadow(0 10px 18px rgba(0,0,0,.45)); }
+      100%{ filter: brightness(1) drop-shadow(0 10px 18px rgba(0,0,0,.45)); }
+    }
+    
+    #playerWrap.attack img{ animation: lungePlayer .22s ease-out 1; }
+    #enemyWrap.attack img{ animation: lungeEnemy .22s ease-out 1; }
+    
+    #playerWrap.hurt img, #enemyWrap.hurt img{ animation: hitFlash .26s ease-out 1; }
+    #playerWrap.shake, #enemyWrap.shake{ animation: shake .28s ease-out 1; }
+    #playerWrap.heal img{ animation: healGlow .35s ease-out 1; }
+    
+    @media (prefers-reduced-motion: reduce){
+      #playerWrap.attack img, #enemyWrap.attack img,
+      #playerWrap.hurt img, #enemyWrap.hurt img,
+      #playerWrap.shake, #enemyWrap.shake,
+      #playerWrap.heal img{
+        animation: none !important;
+      }
+    }
   </style>
 </head>
 <body>
@@ -96,6 +211,21 @@
         </div>
       </div>
       <div class="list" id="relics"></div>
+      <!-- ▼ 戦闘ビジュアル（キャラ表示） -->
+      <div class="stage" id="stage">
+        <div class="sprite player" id="playerWrap">
+          <img id="playerImg" src="./assets/player.png" alt="Player">
+        </div>
+      
+        <div class="sprite enemy" id="enemyWrap" aria-hidden="true">
+          <img id="enemyImg" src="./assets/enemy.png" alt="Enemy">
+        </div>
+      
+        <div class="stageHud">
+          <div class="enemyName" id="enemyName"></div>
+        </div>
+      </div>
+      <!-- ▲ 戦闘ビジュアル -->
     </section>
 
     <section class="card" style="margin-top:12px;">
@@ -114,7 +244,23 @@
   const $ = (id)=>document.getElementById(id);
   const GOAL = 8;
   const BOSS_FLOORS = new Set([4, 8]);
-
+  // --- キャラ演出用 ---
+  const playerWrap = $("playerWrap");
+  const enemyWrap  = $("enemyWrap");
+  const enemyNameEl = $("enemyName");
+  
+  // アニメを確実に再生するため、classを付け直す
+  function playAnim(el, cls, ms=350){
+    el.classList.remove(cls);
+    void el.offsetWidth; // reflow
+    el.classList.add(cls);
+    setTimeout(()=>el.classList.remove(cls), ms);
+  }
+  
+  function setEnemyVisible(visible){
+    if(visible) enemyWrap.classList.remove("hidden");
+    else enemyWrap.classList.add("hidden");
+  }
   // -------------- 便利関数 --------------
   const r = (min,max)=>Math.floor(Math.random()*(max-min+1))+min;
   const clamp = (v,a,b)=>Math.max(a, Math.min(b, v));
@@ -186,11 +332,18 @@
       $("emaxhp").textContent = S.enemy.maxhp;
       $("ehpbar").style.width = `${(S.enemy.hp/S.enemy.maxhp)*100}%`;
       $("eintent").textContent = S.enemyIntent;
+      enemyNameEl.textContent = S.enemy.name || "";
+      setEnemyVisible(true);
+      // ボスなら見た目強化
+      enemyWrap.classList.toggle("boss", !!S.enemy.boss);
     }else{
       $("ehp").textContent = "-";
       $("emaxhp").textContent = "-";
       $("ehpbar").style.width = "0%";
       $("eintent").textContent = "-";
+      enemyNameEl.textContent = "";
+      setEnemyVisible(false);
+      enemyWrap.classList.remove("boss");
     }
 
     // レリック表示
@@ -357,7 +510,8 @@
 
     const doAttack = () => {
       let dmg = r(atkMin, atkMax);
-
+      playAnim(playerWrap, "attack");
+      playAnim(enemyWrap, "hurt");
       // 「休憩：研ぐ」一時バフ（次の攻撃だけ+4）
       if(S.tempSharpen){
         dmg += 4;
@@ -454,6 +608,8 @@
   }
 
   function enemyTurn(){
+    playAnim(enemyWrap, "attack");
+    playAnim(playerWrap, "hurt");
     const atk = S.enemyIntent;
     const reduced = Math.min(S.block, atk);
     const dmg = atk - reduced;
