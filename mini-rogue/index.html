@@ -523,7 +523,8 @@
     enemyNextHeavy: 0, // 溜めの時に予告する強攻撃値
     justUsedBreak: false,
     bossPrepDone: 0,  // その階のボス前準備を済ませたか（4 or 8 を入れる）
-    inBossPrep: false // 今がボス前準備の処理中か
+    inBossPrep: false, // 今がボス前準備の処理中か
+    nonCombatUsed: false,
   };
 
   // -------------- 効果適用 --------------
@@ -769,8 +770,15 @@
     S.enemy = null;
     ui();
 
-    const rooms = nextRooms();
-    log(`<span class="pill neu">階層${S.floor}</span>扉が3つある。どれに進む？<br><small>※ 4階/8階はボス戦（確定レリック）</small>`);
+    // ✅ 非戦闘をこの階で既に使っていたら、扉を戦闘だけにする（無限休憩/無限イベント防止）
+    const rooms = S.nonCombatUsed
+      ? ["combat","combat","combat"]
+      : nextRooms();
+    
+    log(
+      `<span class="pill neu">階層${S.floor}</span>扉が3つある。どれに進む？` +
+      (S.nonCombatUsed ? `<br><small>※ この階層では既に非戦闘を使ったため、次は戦闘のみ。</small>` : `<br><small>※ 4階/8階はボス戦（確定レリック）</small>`)
+    );
 
     setChoices(rooms.map(t=>{
       const info = ROOM_LABEL[t];
@@ -793,6 +801,7 @@
   }
 
   function enterRoom(t){
+    if(t!=="combat" && !S.inBossPrep) S.nonCombatUsed = true; // ✅ ボス前準備中は汚さない
     if(t==="combat") return screenCombatStart(false);
     if(t==="treasure") return screenTreasure();
     if(t==="event") return screenEvent();
@@ -1046,6 +1055,7 @@
             return screenVictory();
           }
           S.floor++;
+          S.nonCombatUsed = false;
           return screenChooseRoom();
         });
       }
@@ -1055,7 +1065,8 @@
         return screenVictory();
       }
       S.floor++;
-      log(`<span class="pill ok">撃破</span>${S.last}<br>報酬：<b>+${gold}</b>コイン<br><small>次の階層へ進む…</small>`);
+      S.nonCombatUsed = false;
+      log(`<span class="pill ok">撃破</span>${S.last}<br>報酬：<b>+${gold}</b>コイン<br><small>扉へ戻る…</small>`);
       setChoices([{label:"進む", cls:"primary", onClick: screenChooseRoom}]);
       return;
     }
@@ -1396,19 +1407,10 @@
 
   // -------------- 非戦闘の「進む」の挙動 --------------
   function proceedAfterNonCombat(){
-    console.log("PROCEED", {
-      floor: S.floor,
-      bossPrepDone: S.bossPrepDone,
-      inBossPrep: S.inBossPrep,
-      mode: S.mode
-    });
-    // ✅ ボス階(4/8)で、まだこの階の準備を済ませてないなら「階層を進めずボスへ」
-    if (isBossFloor(S.floor) && S.bossPrepDone !== S.floor) {
-      return startBossFromPrep(); // floorは進めない
+    if(S.inBossPrep){
+      return startBossFromPrep(); // ボス前準備中だけはボスへ（階層は進めない）
     }
-  
-    if(S.floor >= GOAL) return screenVictory();
-    S.floor++;
+    // ✅ 非戦闘では階層を進めない
     return screenChooseRoom();
   }
   
@@ -1525,6 +1527,7 @@
     S.justUsedBreak = false;
     S.bossPrepDone = 0;
     S.inBossPrep = false;
+    S.nonCombatUsed = false;
     $("pickCard").style.display = "none";
     $("mainCard").style.display = "block";
     ui();
