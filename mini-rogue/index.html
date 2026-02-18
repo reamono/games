@@ -256,7 +256,11 @@
           <div class="label">あなた</div>
           <div class="value"><span id="hp">20</span>/<span id="maxhp">20</span> HP</div>
           <div class="bar"><div id="hpbar"></div></div>
-          <div class="muted" style="margin-top:8px;font-size:12px;">防御: <b id="block">0</b> / コイン: <b id="gold">0</b></div>
+          <div class="muted" style="margin-top:8px;font-size:12px;">
+            防御: <b id="block">0</b> / コイン: <b id="gold">0</b><br>
+            集中: <b id="focus">0</b>/<b id="focusMax">6</b>
+            <span class="muted"> / ブレイクCD: <b id="breakCD">0</b></span>
+          </div>
         </div>
         <div class="stat">
           <div class="label">敵</div>
@@ -445,6 +449,25 @@
     playerWrap.classList.toggle("idle", on);
     enemyWrap.classList.toggle("idle", on && !!S.enemy);
   }
+
+  function gainFocus(n){
+    S.focus = clamp(S.focus + n, 0, S.focusMax);
+  }
+  function spendFocus(n){
+    if(S.focus < n) return false;
+    S.focus -= n;
+    return true;
+  }
+  function tickCooldowns(){
+    if(S.breakCD > 0) S.breakCD--;
+  }
+  function tickCooldownsSafe(){
+    if(S.justUsedBreak){
+      S.justUsedBreak = false; // このターンだけ減らさない
+      return;
+    }
+    tickCooldowns();
+  }
   
   // -------------- 便利関数 --------------
   const r = (min,max)=>Math.floor(Math.random()*(max-min+1))+min;
@@ -489,10 +512,16 @@
     lastBossFloorCleared: 0,
     treasureCount: 0,
     // --- 戦略要素 ---
+    focus: 0,
+    focusMax: 6,
+    breakCD: 0,        // ブレイクのクールダウン（ラウンド単位）
+    breakStun: 0,      // ブレイクで敵がひるむターン数（1なら次の敵行動をスキップ）
+    enemyWeaken: 0,    // 次の敵攻撃 -○（強攻撃などの小さな副作用で使う）
     evadeRate: 0,      // 次の被ダメを割合軽減（例:0.6=60%軽減）
     healWard: 0,       // 回復したら付く「次の被ダメ-○」（固定軽減）
     enemyIntentType: "normal", // "normal" | "charge" | "heavy"
     enemyNextHeavy: 0, // 溜めの時に予告する強攻撃値
+    justUsedBreak: false,
   };
 
   // -------------- 効果適用 --------------
@@ -513,11 +542,15 @@
     if(!S.enemy) return "-";
     if(S.enemyIntentType === "charge") return `溜め（次:${S.enemyNextHeavy}）`;
     if(S.enemyIntentType === "heavy")  return `強攻撃:${S.enemyIntent}`;
+    if(S.enemyIntentType === "recoil") return `反動（隙）`;
     return `${S.enemyIntent}`;
   }
   
   // -------------- UI --------------
   function ui(){
+    $("focus").textContent = S.focus;
+    $("focusMax").textContent = S.focusMax;
+    $("breakCD").textContent = S.breakCD;
     $("hp").textContent = S.hp;
     $("maxhp").textContent = S.maxhp;
     $("block").textContent = S.block;
@@ -537,6 +570,8 @@
         $("eintent").textContent = `溜め（次:${S.enemyNextHeavy}）`;
       }else if(S.enemyIntentType === "heavy"){
         $("eintent").textContent = `強攻撃:${S.enemyIntent}`;
+      }else if(S.enemyIntentType === "recoil"){
+        $("eintent").textContent = `反動（隙）`;
       }else{
         $("eintent").textContent = S.enemyIntent;
       }
@@ -657,14 +692,32 @@
     };
   }
 
-  function rollEnemyIntent(){
-    // 通常はいつもの数値攻撃
+  function rollEnemyIntent(opts = {}){
+    const forceNormal = !!opts.forceNormal;
+
+    // デフォルト
     S.enemyIntentType = "normal";
     S.enemyNextHeavy = 0;
-  
-    // ボスだけ：たまに「溜め」を出す（次ターン強攻撃を予告）
+
+    // ボス：強攻撃の次に「反動（隙）」を1ターン入れる
+    if(S.enemy?.boss && S.enemy._recoil){
+      S.enemyIntentType = "recoil";
+      S.enemyIntent = 0;
+      S.enemy._recoil = false;
+      return;
+    }
+
+    // ブレイク等で「今回は絶対通常」にしたい時
+    if(forceNormal){
+      S.enemy._charged = false;
+      S.enemy._heavyValue = 0;
+      S.enemyIntent = r(S.enemy.atkMin, S.enemy.atkMax);
+      return;
+    }
+
+    // ボス：溜め→強攻撃
     if(S.enemy?.boss){
-      // すでに溜め済みなら、次は強攻撃を確定で出す
+      // すでに溜め済みなら次は強攻撃
       if(S.enemy._charged){
         S.enemyIntentType = "heavy";
         S.enemyIntent = S.enemy._heavyValue || r(S.enemy.atkMin, S.enemy.atkMax);
@@ -672,23 +725,20 @@
         S.enemy._heavyValue = 0;
         return;
       }
-  
-      // ここが発生率：0.30くらいがちょうど良い（好みで調整）
+
+      // たまに溜め（次の強攻撃を予告）
       const chargeChance = 0.30;
       if(Math.random() < chargeChance){
-        // 溜め：このターンは攻撃しない（＝intentは「溜め」表示にする）
         S.enemyIntentType = "charge";
-        const heavy = r(S.enemy.atkMin + 4, S.enemy.atkMax + 8); // 強攻撃は少し上振れ
+        const heavy = r(S.enemy.atkMin + 4, S.enemy.atkMax + 8);
         S.enemyNextHeavy = heavy;
         S.enemy._charged = true;
         S.enemy._heavyValue = heavy;
-  
-        // intentの数値自体は使わないけど、念のため0にしておく
         S.enemyIntent = 0;
         return;
       }
     }
-  
+
     // 通常攻撃
     S.enemyIntent = r(S.enemy.atkMin, S.enemy.atkMax);
   }
@@ -759,7 +809,7 @@
     rollEnemyIntent();
     ui();
     const bossTxt = isBoss ? ` <span class="pill warn">BOSS</span>` : "";
-    log(`<span class="pill neu">戦闘</span>${bossTxt}${S.enemy.name}が現れた！<br><small>敵の次の攻撃は <b>${intentText()}</b></small>`);
+    log(`<span class="pill neu">戦闘</span>${bossTxt}${S.enemy.name}が現れた！<br><small>敵の次の攻撃は <b>${$("eintent").textContent}</b></small>`);
     setChoices(makeCombatChoices());
     playBGM();
     setIdle(true);
@@ -785,6 +835,7 @@
       dmg = applyRelicsHook("onAtk", dmg);
       S.enemy.hp = clamp(S.enemy.hp - dmg, 0, S.enemy.maxhp);
       S.last = `あなたの攻撃！ 敵に <b>${dmg}</b> ダメージ。`;
+      gainFocus(1);
       afterPlayerAction();
     };
 
@@ -793,6 +844,7 @@
       playSE("guard");
       b = applyRelicsHook("onBlock", b);
       S.block = b;
+      gainFocus(2);
       S.last = `防御！ 次の被ダメージを <b>${b}</b> 軽減。`;
       afterPlayerAction();
     };
@@ -804,6 +856,7 @@
       S.hp = clamp(S.hp + h, 0, S.maxhp);
       // 回復の追加効果：次の被ダメを固定で-2（フロアで少し伸ばす）
       S.healWard = 2 + Math.floor(S.floor / 3); // 例: 1-2F=2, 3-5F=3, 6-8F=4
+      gainFocus(1);
       S.last = `回復！ HPを <b>${h}</b> 回復。<br><small>加護：次の被ダメ -<b>${S.healWard}</b></small>`;
       afterPlayerAction();
     };
@@ -811,7 +864,82 @@
     const doEvade = () => {
       // 次の被ダメを60%軽減（強いので固定で60%くらいが扱いやすい）
       S.evadeRate = 0.60;
+      gainFocus(2);
       S.last = `🪽 回避の構え！ 次の被ダメージを <b>60%</b> 軽減。`;
+      afterPlayerAction();
+    };
+
+    const doStrongAttack = () => {
+      const cost = 3;
+      if(!spendFocus(cost)){
+        S.last = `❌ 集中が足りない（必要${cost}）`;
+        ui();
+        setChoices(makeCombatChoices());
+        return;
+      }
+
+      // 通常攻撃より少し強い程度（強すぎるとヌルくなるので控えめ）
+      let dmg = r(atkMin, atkMax) + 5;
+
+      playAnim(playerWrap, "attack", 220);
+      playAnim(enemyWrap, "hurt", 260);
+      playAnim(enemyWrap, "knockback", 200);
+      playSE("attack");
+
+      if(S.tempSharpen){
+        dmg += 4;
+        S.tempSharpen = false;
+      }
+
+      dmg = applyRelicsHook("onAtk", dmg);
+
+      // 小さな追加効果：次の敵攻撃 -2（“攻めたら少し楽になる”）
+      S.enemyWeaken = Math.max(S.enemyWeaken, 2);
+
+      S.enemy.hp = clamp(S.enemy.hp - dmg, 0, S.enemy.maxhp);
+      S.last = `💥 強攻撃！ 敵に <b>${dmg}</b> ダメージ。<br><small>圧力：次の敵攻撃 -<b>${S.enemyWeaken}</b></small>`;
+      afterPlayerAction();
+    };
+
+    const doBreak = () => {
+      const cost = 2;
+
+      // 「溜め」中にだけ使える：強攻撃キャンセル用
+      if(S.enemyIntentType !== "charge"){
+        S.last = `❌ ブレイクは「溜め」中にしか使えない`;
+        ui();
+        setChoices(makeCombatChoices());
+        return;
+      }
+      if(S.breakCD > 0){
+        S.last = `❌ ブレイクはクールダウン中（残り${S.breakCD}）`;
+        ui();
+        setChoices(makeCombatChoices());
+        return;
+      }
+      if(!spendFocus(cost)){
+        S.last = `❌ 集中が足りない（必要${cost}）`;
+        ui();
+        setChoices(makeCombatChoices());
+        return;
+      }
+
+      // 溜めを中断：強攻撃予定を消す
+      S.enemy._charged = false;
+      S.enemy._heavyValue = 0;
+      S.enemyIntentType = "normal";
+      S.enemyNextHeavy = 0;
+
+      // ひるみ：このターンの敵行動をスキップ（ただしCD＋コストで無限不可）
+      S.breakStun = 1;
+      S.breakCD = 3;
+      S.justUsedBreak = true;
+
+      // 溜めキャンセル後の「次の攻撃」をここで1回だけ決める（表示用）
+      rollEnemyIntent({ forceNormal: true });
+      ui();
+
+      S.last = `🧱 ブレイク！ 溜めを中断させた。<br><small>敵はひるんで行動できない（CD:${S.breakCD}）</small>`;
       afterPlayerAction();
     };
     
@@ -832,9 +960,17 @@
 
     const list = [
       { label:`⚔️ 攻撃 <span class="muted">(${atkMin}〜${atkMax})</span>`, cls:"primary", onClick: doAttack },
-      { label:`🛡️ 防御 <span class="muted">(軽減 5〜${8+S.floor}+効果)</span>`, cls:"okbtn", onClick: doGuard },
-      { label:`💚 回復 <span class="muted">(4〜7+効果)</span>`, cls:"okbtn", onClick: doHeal },
-      { label:`🪽 回避 <span class="muted">(次の被ダメ-60%)</span>`, cls:"okbtn", onClick: doEvade },
+      { label:`🛡️ 防御 <span class="muted">(軽減 5〜${8+S.floor}+効果 / 集中+2)</span>`, cls:"okbtn", onClick: doGuard },
+      { label:`💚 回復 <span class="muted">(4〜7+効果 / 集中+1)</span>`, cls:"okbtn", onClick: doHeal },
+      { label:`🪽 回避 <span class="muted">(次の被ダメ-60% / 集中+2)</span>`, cls:"okbtn", onClick: doEvade },
+
+      { label:`💥 強攻撃 <span class="muted">(集中-3 / +5ダメ+圧力)</span>`, cls:"primary", onClick: doStrongAttack,
+        disabled: S.focus < 3
+      },
+
+      { label:`🧱 ブレイク <span class="muted">(溜め中のみ / 集中-2 / CD3)</span>`, cls:"warnbtn", onClick: doBreak,
+        disabled: (S.focus < 2) || (S.breakCD > 0) || (S.enemyIntentType !== "charge")
+      },
     ];
 
     if(chance(0.35)){
@@ -885,36 +1021,77 @@
   }
 
   function enemyTurn(){
-    // 溜めターン：攻撃しない
+    // 1) ブレイクのひるみ：敵の行動をスキップ
+    if(S.breakStun > 0){
+      S.breakStun--;
+      tickCooldownsSafe();  // ✅ ここでCD進行（ただしブレイク直後は止まる）
+    
+      // ❌ rollEnemyIntent(); はしない（doBreakで既に1回決めた）
+      ui();
+      log(`${S.last}<br>敵はひるんで動けない！<br><small>次の攻撃は <b>${$("eintent").textContent}</b></small>`);
+      setChoices(makeCombatChoices());
+      return;
+    }
+
+    // 2) 溜めターン：攻撃しない（次に強攻撃が来る）
     if(S.enemyIntentType === "charge"){
-      // 次のintent（強攻撃）へ更新して、プレイヤーに見せる
-      rollEnemyIntent();
+      tickCooldownsSafe();
+      rollEnemyIntent(); // 次（heavy等）を決める
       ui();
       log(`${S.last}<br>敵は力を溜めている…！<br><small>次の攻撃は <b>${$("eintent").textContent}</b></small>`);
       setChoices(makeCombatChoices());
       return;
     }
-    playAnim(enemyWrap, "attack", 220);          // 敵の踏み込み
-    playAnim(playerWrap, "hurt", 260);           // 被弾フラッシュ
-    playAnim(playerWrap, "knockback", 200);      // ノックバック
+
+    // 3) 反動（隙）ターン：攻撃しない（強攻撃の次に来る）
+    if(S.enemyIntentType === "recoil"){
+      tickCooldownsSafe();
+      rollEnemyIntent(); // 次（normal）を決める
+      ui();
+      log(`${S.last}<br>敵は反動で隙だらけだ！<br><small>次の攻撃は <b>${$("eintent").textContent}</b></small>`);
+      setChoices(makeCombatChoices());
+      return;
+    }
+
+    // 4) 通常 or 強攻撃
+    playAnim(enemyWrap, "attack", 220);
+    playAnim(playerWrap, "hurt", 260);
+    playAnim(playerWrap, "knockback", 200);
+
     const atk = S.enemyIntent;
+
+    // 防御（固定軽減）
     const reduced = Math.min(S.block, atk);
     let dmg = atk - reduced;
-    
-    // 回復の追加効果（固定軽減）：次の被ダメを -healWard
+
+    // 強攻撃/圧力などの「次の敵攻撃-○」
+    if(S.enemyWeaken){
+      dmg = Math.max(0, dmg - S.enemyWeaken);
+      S.enemyWeaken = 0;
+    }
+
+    // 回復の加護（固定軽減）
     if(S.healWard){
       dmg = Math.max(0, dmg - S.healWard);
       S.healWard = 0;
     }
-    
+
     // 回避（割合軽減）
     if(S.evadeRate){
       dmg = Math.floor(dmg * (1 - S.evadeRate));
       S.evadeRate = 0;
     }
+
     S.block = 0;
     S.hp = clamp(S.hp - dmg, 0, S.maxhp);
 
+    // ★ 強攻撃だった場合：次のターンを「反動（隙）」にする（ボスのみ）
+    if(S.enemy?.boss && S.enemyIntentType === "heavy"){
+      S.enemy._recoil = true;
+    }
+
+    // ラウンド終了処理
+    tickCooldownsSafe();
     rollEnemyIntent();
     ui();
 
@@ -922,7 +1099,7 @@
       return screenGameOver(atk, reduced, dmg);
     }
 
-    log(`${S.last}<br>敵の攻撃 ${atk}（軽減 ${reduced}）→ 被ダメ ${dmg}<br><small>敵の次の攻撃は <b>${intentText()}</b></small>`);
+    log(`${S.last}<br>敵の攻撃 ${atk}（軽減 ${reduced}）→ 被ダメ ${dmg}<br><small>敵の次の攻撃は <b>${$("eintent").textContent}</b></small>`);
     setChoices(makeCombatChoices());
   }
 
@@ -1274,6 +1451,17 @@
     S.tempStartBlock = 0;
     S.mode = "chooseRoom";
     S.treasureCount = 0;
+    S.lastBossFloorCleared = 0;
+    S.focus = 0;
+    S.focusMax = 6;
+    S.breakCD = 0;
+    S.breakStun = 0;
+    S.enemyWeaken = 0;
+    S.evadeRate = 0;
+    S.healWard = 0;
+    S.enemyIntentType = "normal";
+    S.enemyNextHeavy = 0;
+    S.justUsedBreak = false;
     $("pickCard").style.display = "none";
     $("mainCard").style.display = "block";
     ui();
