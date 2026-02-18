@@ -522,6 +522,8 @@
     enemyIntentType: "normal", // "normal" | "charge" | "heavy"
     enemyNextHeavy: 0, // 溜めの時に予告する強攻撃値
     justUsedBreak: false,
+    bossPrepDone: 0,  // その階のボス前準備を済ませたか（4 or 8 を入れる）
+    inBossPrep: false // 今がボス前準備の処理中か
   };
 
   // -------------- 効果適用 --------------
@@ -746,14 +748,18 @@
   // -------------- 画面：部屋選択 --------------
   function screenChooseRoom(){
     console.log("chooseRoom", { floor: S.floor, lastBossFloorCleared: S.lastBossFloorCleared, mode: S.mode });
-    // ✅ ボス階は部屋選択なしでボス戦へ（ただし同階の再ボスを防止）
+    // ボス階に入ったら
     if(isBossFloor(S.floor)){
       // もし「倒したはずの階にまだいる」なら、次へ進めて復旧
       if(S.lastBossFloorCleared === S.floor){
         if(S.floor >= GOAL) return screenVictory();
         S.floor++;
-        // 進めた結果がまたボス階なら、通常の判定で入る（ただし今回の仕様では起きない）
       }else{
+        // ✅ まだ準備してないなら準備部屋へ
+        if(S.bossPrepDone !== S.floor){
+          return screenBossPrep();
+        }
+        // ✅ 準備済みならボスへ
         return screenCombatStart(true);
       }
     }
@@ -794,6 +800,43 @@
     if(t==="shop") return screenShop();
   }
 
+  // -------------- 画面：ボス前準備部屋 --------------
+  function screenBossPrep(){
+    S.mode = "bossPrep";
+    S.inBossPrep = true;
+    ui();
+  
+    log(`<span class="pill warn">ボス前</span>この先に強敵の気配…。準備する？`);
+  
+    setChoices([
+      { label:`🛏️ 休憩 <span class="muted">（回復して挑む）</span>`, cls:"okbtn", onClick: ()=>{
+        // 既存の休憩処理を「進む無し」で呼びたいなら、ここに簡易回復を直書きがラク
+        const baseHeal = r(6, 10);
+        let heal = applyRelicsHook("onRest", baseHeal);
+        S.hp = clamp(S.hp + heal, 0, S.maxhp);
+        ui();
+        log(`<span class="pill ok">準備</span>HP+${heal}。ボス戦へ…`);
+        setChoices([{label:"ボスへ", cls:"warnbtn", onClick: startBossFromPrep}]);
+      }},
+      { label:`❓ イベント <span class="muted">（一発勝負）</span>`, cls:"badbtn", onClick: ()=>{
+        // 既存イベントを流用。ただしイベント内の「進む」をボスへ繋ぐ必要がある
+        screenEvent();
+        // ここがポイント：screenEvent内の「進む」を後述の proceedAfterNonCombat() に差し替える
+      }},
+      { label:`🛒 商人 <span class="muted">（強化して挑む）</span>`, cls:"okbtn", onClick: ()=>{
+        screenShop();
+        // 同上：shop内の「進む」を proceedAfterNonCombat() に差し替える
+      }},
+    ]);
+  }
+
+  // -------------- ボス開始用 --------------
+  function startBossFromPrep(){
+    S.inBossPrep = false;
+    S.bossPrepDone = S.floor;   // この階の準備は済んだ
+    screenCombatStart(true);    // floorは4/8のままボス戦へ
+  }
+  
   // -------------- 戦闘 --------------
   function screenCombatStart(isBoss){
     S.mode = "combat";
@@ -1148,7 +1191,7 @@
     // レリック上限チェック
     if (S.relics.length >= MAX_RELICS) {
       log(`<span class="pill warn">宝箱</span>レリック上限（${MAX_RELICS}）のため獲得できない。`);
-      setChoices([{label:"進む", cls:"primary", onClick: screenChooseRoom}]);
+      setChoices([{label:"進む", cls:"primary", onClick: proceedAfterNonCombat}]);
       return;
     }
     
@@ -1168,7 +1211,7 @@
 
     if(picks.length === 0){
       log(`<span class="pill warn">宝箱</span>…しかしレリックはもう残っていない。`);
-      setChoices([{label:"進む", cls:"primary", onClick: screenChooseRoom}]);
+      setChoices([{label:"進む", cls:"primary", onClick: proceedAfterNonCombat}]);
       return;
     }
 
@@ -1186,7 +1229,7 @@
         if(typeof rel.onPick === "function") rel.onPick(S);
         ui();
         log(`<span class="pill warn">入手</span><b>${rel.name}</b> を手に入れた！<br><small>${rel.desc}</small>`);
-        setChoices([{label:"進む", cls:"primary", onClick: screenChooseRoom}]);
+        setChoices([{label:"進む", cls:"primary", onClick: proceedAfterNonCombat}]);
       }
     })));
   }
@@ -1214,11 +1257,11 @@
           ui();
           if(S.hp<=0) return defeatFromEvent();
           log(`<span class="pill bad">結果</span>${S.last}`);
-          setChoices([{label:"進む", cls:"primary", onClick: screenChooseRoom}]);
+          setChoices([{label:"進む", cls:"primary", onClick: proceedAfterNonCombat}]);
         }},
         { label:`🚶 立ち去る <span class="muted">（安全）</span>`, cls:"okbtn", onClick: ()=>{
           log(`<span class="pill neu">回避</span>何もしないのが一番。`);
-          setChoices([{label:"進む", cls:"primary", onClick: screenChooseRoom}]);
+          setChoices([{label:"進む", cls:"primary", onClick: proceedAfterNonCombat}]);
         }},
       ]);
       return;
@@ -1238,13 +1281,13 @@
           ui();
           if(S.hp<=0) return defeatFromEvent();
           log(`<span class="pill bad">結果</span>${S.last}`);
-          setChoices([{label:"進む", cls:"primary", onClick: screenChooseRoom}]);
+          setChoices([{label:"進む", cls:"primary", onClick: proceedAfterNonCombat}]);
         }},
         { label:`🪙 コインを捧げる <span class="muted">（レリック3択）</span>`, cls:"warnbtn", onClick: ()=>{
           const cost = 12;
           if(S.gold < cost){
             log(`<span class="pill warn">不足</span>コインが足りない（必要${cost} / 所持${S.gold}）。`);
-            setChoices([{label:"進む", cls:"primary", onClick: screenChooseRoom}]);
+            setChoices([{label:"進む", cls:"primary", onClick: proceedAfterNonCombat}]);
             return;
           }
           S.gold -= cost;
@@ -1253,7 +1296,7 @@
         }},
         { label:`🚶 立ち去る`, cls:"okbtn", onClick: ()=>{
           log(`<span class="pill neu">回避</span>面倒には関わらない。`);
-          setChoices([{label:"進む", cls:"primary", onClick: screenChooseRoom}]);
+          setChoices([{label:"進む", cls:"primary", onClick: proceedAfterNonCombat}]);
         }},
       ]);
       return;
@@ -1266,7 +1309,7 @@
           const bet = 10;
           if(S.gold < bet){
             log(`<span class="pill warn">不足</span>コインが足りない（必要${bet}）。`);
-            setChoices([{label:"進む", cls:"primary", onClick: screenChooseRoom}]);
+            setChoices([{label:"進む", cls:"primary", onClick: proceedAfterNonCombat}]);
             return;
           }
           S.gold -= bet;
@@ -1282,13 +1325,13 @@
           }
           ui();
           log(`<span class="pill bad">結果</span>${S.last}`);
-          setChoices([{label:"進む", cls:"primary", onClick: screenChooseRoom}]);
+          setChoices([{label:"進む", cls:"primary", onClick: proceedAfterNonCombat}]);
         }},
         { label:`💚 交換 <span class="muted">（HP+6 ただしコイン-8）</span>`, cls:"okbtn", onClick: ()=>{
           const cost = 8;
           if(S.gold < cost){
             log(`<span class="pill warn">不足</span>コインが足りない（必要${cost}）。`);
-            setChoices([{label:"進む", cls:"primary", onClick: screenChooseRoom}]);
+            setChoices([{label:"進む", cls:"primary", onClick: proceedAfterNonCombat}]);
             return;
           }
           S.gold -= cost;
@@ -1297,11 +1340,11 @@
           S.hp = clamp(S.hp + h, 0, S.maxhp);
           ui();
           log(`<span class="pill ok">結果</span>HP+${h} / コイン-${cost}`);
-          setChoices([{label:"進む", cls:"primary", onClick: screenChooseRoom}]);
+          setChoices([{label:"進む", cls:"primary", onClick: proceedAfterNonCombat}]);
         }},
         { label:`🚶 立ち去る`, cls:"okbtn", onClick: ()=>{
           log(`<span class="pill neu">回避</span>関わらない。`);
-          setChoices([{label:"進む", cls:"primary", onClick: screenChooseRoom}]);
+          setChoices([{label:"進む", cls:"primary", onClick: proceedAfterNonCombat}]);
         }},
       ]);
       return;
@@ -1324,7 +1367,7 @@
         ui();
         if(S.hp<=0) return defeatFromEvent();
         log(`<span class="pill bad">結果</span>${S.last}`);
-        setChoices([{label:"進む", cls:"primary", onClick: screenChooseRoom}]);
+        setChoices([{label:"進む", cls:"primary", onClick: proceedAfterNonCombat}]);
       }},
       { label:`🏃 走り抜ける <span class="muted">（成功で宝箱 / 失敗で大ダメ）</span>`, cls:"badbtn", onClick: ()=>{
         if(chance(0.45)){
@@ -1338,7 +1381,7 @@
           ui();
           if(S.hp<=0) return defeatFromEvent();
           log(`<span class="pill bad">失敗</span>大ダメージ… HP-${d}`);
-          setChoices([{label:"進む", cls:"primary", onClick: screenChooseRoom}]);
+          setChoices([{label:"進む", cls:"primary", onClick: proceedAfterNonCombat}]);
         }
       }},
     ]);
@@ -1351,6 +1394,16 @@
     setChoices([]); // 負けたら下のリスタートボタンで再開
   }
 
+  // -------------- 非戦闘の「進む」の挙動 --------------
+  function proceedAfterNonCombat(){
+    if(S.inBossPrep){
+      return startBossFromPrep(); // floorは進めない
+    }
+    if(S.floor >= GOAL) return screenVictory();
+    S.floor++;
+    return screenChooseRoom();
+  }
+  
   // -------------- 休憩 --------------
   function screenRest(){
     S.mode = "rest";
@@ -1365,13 +1418,13 @@
         S.hp = clamp(S.hp + heal, 0, S.maxhp);
         ui();
         log(`<span class="pill ok">回復</span>HP+${heal}`);
-        setChoices([{label:"進む", cls:"primary", onClick: screenChooseRoom}]);
+        setChoices([{label:"進む", cls:"primary", onClick: proceedAfterNonCombat}]);
       }},
       { label:`🔧 研ぐ <span class="muted">(次の戦闘の最初の攻撃+4)</span>`, cls:"primary", onClick: ()=>{
         S.tempSharpen = true;
         ui();
         log(`<span class="pill neu">準備</span>武器を研いだ。次の戦闘の最初の攻撃が強化される。`);
-        setChoices([{label:"進む", cls:"primary", onClick: screenChooseRoom}]);
+        setChoices([{label:"進む", cls:"primary", onClick: proceedAfterNonCombat}]);
       }},
     ]);
   }
@@ -1408,10 +1461,10 @@
           it.buy();
           ui();
           log(`<span class="pill ok">購入</span>${it.name} を購入した。`);
-          setChoices([{label:"進む", cls:"primary", onClick: screenChooseRoom}]);
+          setChoices([{label:"進む", cls:"primary", onClick: proceedAfterNonCombat}]);
         }
       })),
-      { label:`🚶 何も買わずに進む`, cls:"primary", onClick: screenChooseRoom }
+      { label:`🚶 何も買わずに進む`, cls:"primary", onClick: proceedAfterNonCombat }
     ]);
   }
 
@@ -1462,6 +1515,8 @@
     S.enemyIntentType = "normal";
     S.enemyNextHeavy = 0;
     S.justUsedBreak = false;
+    S.bossPrepDone = 0;
+    S.inBossPrep = false;
     $("pickCard").style.display = "none";
     $("mainCard").style.display = "block";
     ui();
