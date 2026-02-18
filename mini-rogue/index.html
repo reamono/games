@@ -1396,6 +1396,12 @@
 
   // -------------- 非戦闘の「進む」の挙動 --------------
   function proceedAfterNonCombat(){
+    console.log("PROCEED", {
+      floor: S.floor,
+      bossPrepDone: S.bossPrepDone,
+      inBossPrep: S.inBossPrep,
+      mode: S.mode
+    });
     // ✅ ボス階(4/8)で、まだこの階の準備を済ませてないなら「階層を進めずボスへ」
     if (isBossFloor(S.floor) && S.bossPrepDone !== S.floor) {
       return startBossFromPrep(); // floorは進めない
