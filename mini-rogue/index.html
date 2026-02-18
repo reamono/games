@@ -259,14 +259,15 @@
           <div class="muted" style="margin-top:8px;font-size:12px;">
             防御: <b id="block">0</b> / コイン: <b id="gold">0</b><br>
             集中: <b id="focus">0</b>/<b id="focusMax">6</b>
-            <span class="muted"> / ブレイクCD: <b id="breakCD">0</b></span>
+            <span class="muted"> / ブレイクCD: <b id="breakCD">0</b></span><br>
+            状態: <b id="pstatus">なし</b>
           </div>
         </div>
         <div class="stat">
           <div class="label">敵</div>
           <div class="value"><span id="ehp">-</span>/<span id="emaxhp">-</span> HP</div>
           <div class="bar"><div id="ehpbar"></div></div>
-          <div class="muted" style="margin-top:8px;font-size:12px;">予定攻撃: <b id="eintent">-</b></div>
+          <div class="muted" style="margin-top:8px;font-size:12px;">予定攻撃: <b id="eintent">-</b><br>状態: <b id="estatus">なし</b></div>
         </div>
         <div class="stat">
           <div class="label">進行</div>
@@ -477,6 +478,71 @@
 
   const isBossFloor = (floor)=>BOSS_FLOORS.has(floor);
 
+
+  // -------------- 状態異常 --------------
+  const formatStatuses = (st)=>{
+    const parts = [];
+    if(st.poison>0) parts.push(`毒${st.poison}`);
+    if(st.burn>0) parts.push(`火傷${st.burn}`);
+    if(st.weaken>0) parts.push(`弱体${st.weaken}`);
+    if(st.vulnerable>0) parts.push(`脆弱${st.vulnerable}`);
+    if(st.stun>0) parts.push(`スタン${st.stun}`);
+    return parts.length ? parts.join(" / ") : "なし";
+  };
+
+  function addStatus(target, kind, turns, optDmg=0){
+    const st = target === "enemy" ? S.eStatus : S.pStatus;
+    st[kind] = Math.max(st[kind]||0, turns);
+    if(kind==="poison" && optDmg) st.poisonDmg = optDmg;
+    if(kind==="burn" && optDmg)   st.burnDmg   = optDmg;
+  }
+
+  // プレイヤーに操作権が戻る直前に呼ぶ（毒/火傷などのDOT、スタンのスキップ）
+  function presentPlayerChoices(){
+    const prepend = [];
+
+    if(S.pStatus.poison>0){
+      const d = S.pStatus.poisonDmg || (2 + Math.floor(S.floor/3));
+      S.hp = clamp(S.hp - d, 0, S.maxhp);
+      S.pStatus.poison--;
+      prepend.push(`☠️ 毒で <b>${d}</b> ダメージ`);
+    }
+    if(S.pStatus.burn>0){
+      const d = S.pStatus.burnDmg || (2 + Math.floor(S.floor/4));
+      S.hp = clamp(S.hp - d, 0, S.maxhp);
+      S.pStatus.burn--;
+      prepend.push(`🔥 火傷で <b>${d}</b> ダメージ`);
+    }
+
+    if(prepend.length){
+      $("log").innerHTML = prepend.join("<br>") + "<br>" + $("log").innerHTML;
+    }
+
+    ui();
+    if(S.hp <= 0){
+      stopBGM();
+      playSE("lose");
+      S.mode = "gameover";
+      ui();
+      log(`<span class="pill bad">敗北</span>状態異常のダメージで倒れた…<br><small>到達：階層${S.floor}/${GOAL} / 勝利数:${S.wins} / 手数:${S.turns}</small>`);
+      setChoices([]);
+      return;
+    }
+
+    if(S.pStatus.stun>0){
+      S.pStatus.stun--;
+      ui();
+      $("log").innerHTML = `😵 スタンで動けない！<br>` + $("log").innerHTML;
+      setChoices([]); // クリック不能にして即敵ターンへ
+      S.last = "😵 スタンで動けない！";
+      return enemyTurn();
+    }
+
+    // ✅ ここがポイント：プレイヤーの選択肢を出す
+    setChoices(makeCombatChoices());
+    setIdle(true);
+  }
+
   // -------------- レリック定義 --------------
   const RELICS = [
     { id:"spike", name:"トゲの指輪", desc:"攻撃+1（毎回）", onAtk:(s, dmg)=>dmg+1 },
@@ -529,6 +595,11 @@
     bossPrepDone: 0,  // その階のボス前準備を済ませたか（4 or 8 を入れる）
     inBossPrep: false, // 今がボス前準備の処理中か
     nonCombatUsed: false,
+    // --- 状態異常 ---
+    pStatus: { poison:0, poisonDmg:0, burn:0, burnDmg:0, weaken:0, vulnerable:0, stun:0 },
+    eStatus: { poison:0, poisonDmg:0, burn:0, burnDmg:0, weaken:0, vulnerable:0, stun:0 },
+    enemyIntentMeta: null,
+    bossPicked: {},
   };
 
   // -------------- 効果適用 --------------
@@ -547,9 +618,11 @@
 
   function intentText(){
     if(!S.enemy) return "-";
+    if(S.enemyIntentMeta && S.enemyIntentMeta.intentText) return S.enemyIntentMeta.intentText;
     if(S.enemyIntentType === "charge") return `溜め（次:${S.enemyNextHeavy}）`;
     if(S.enemyIntentType === "heavy")  return `強攻撃:${S.enemyIntent}`;
     if(S.enemyIntentType === "recoil") return `反動（隙）`;
+    if(S.enemyIntentType === "skill")  return `スキル`;
     return `${S.enemyIntent}`;
   }
   
@@ -558,6 +631,7 @@
     $("focus").textContent = S.focus;
     $("focusMax").textContent = S.focusMax;
     $("breakCD").textContent = S.breakCD;
+    if($("pstatus")) $("pstatus").textContent = formatStatuses(S.pStatus);
     $("hp").textContent = S.hp;
     $("maxhp").textContent = S.maxhp;
     $("block").textContent = S.block;
@@ -582,7 +656,13 @@
       }else{
         $("eintent").textContent = S.enemyIntent;
       }
+      if(S.enemyIntentMeta && S.enemyIntentMeta.intentText){
+        $("eintent").textContent = S.enemyIntentMeta.intentText;
+      }
+      if($("estatus")) $("estatus").textContent = formatStatuses(S.eStatus);
       enemyNameEl.textContent = S.enemy.name || "";
+      const eimg = $("enemyImg");
+      if(eimg) eimg.src = S.enemy.src || "./assets/enemy.png";
       setEnemyVisible(true);
       // ボスなら見た目強化
       enemyWrap.classList.toggle("boss", !!S.enemy.boss);
@@ -591,7 +671,10 @@
       $("emaxhp").textContent = "-";
       $("ehpbar").style.width = "0%";
       $("eintent").textContent = "-";
+      if($("estatus")) $("estatus").textContent = "なし";
       enemyNameEl.textContent = "";
+      const eimg = $("enemyImg");
+      if(eimg) eimg.src = "./assets/enemy.png";
       setEnemyVisible(false);
       enemyWrap.classList.remove("boss");
 
@@ -684,69 +767,264 @@
     };
   }
 
+  
+  // -------------- ボス（複数＋攻撃パターン） --------------
+  const BOSSES = [
+    {
+      id: "beast",
+      name4: "門番の巨獣",
+      name8: "深層の王",
+      src4: "./assets/boss_beast.png", // 画像はここを差し替えてください
+      src8: "./assets/boss_king.png",
+      build(f){
+        // 既存の「溜め→強攻撃→反動」系
+        const base = 18 + f*5;
+        const atkMin = 6 + f;
+        const atkMax = 10 + f*2;
+        const e = {
+          name: (f===8) ? this.name8 : this.name4,
+          src:  (f===8) ? this.src8  : this.src4,
+          maxhp: base,
+          hp: base,
+          atkMin, atkMax,
+          boss: true,
+          _charged:false,
+          _heavyValue:0,
+          _recoil:false,
+          rollIntent(s, opts={}){
+            const forceNormal = !!opts.forceNormal;
+            s.enemyIntentMeta = null;
+            s.enemyIntentType = "normal";
+            s.enemyNextHeavy = 0;
+
+            if(this._recoil){
+              s.enemyIntentType = "recoil";
+              s.enemyIntent = 0;
+              this._recoil = false;
+              return;
+            }
+            if(forceNormal){
+              this._charged = false;
+              this._heavyValue = 0;
+              s.enemyIntent = r(this.atkMin, this.atkMax);
+              return;
+            }
+            if(this._charged){
+              s.enemyIntentType = "heavy";
+              s.enemyIntent = this._heavyValue || r(this.atkMin, this.atkMax);
+              this._charged = false;
+              this._heavyValue = 0;
+              // heavy の副作用：ときどき脆弱を付与
+              if(Math.random() < 0.35){
+                s.enemyIntentMeta = { apply: { vulnerable: { turns: 2 } }, intentText: `強攻撃:${s.enemyIntent}（脆弱）` };
+              }
+              return;
+            }
+            // たまに溜め
+            if(Math.random() < 0.30){
+              s.enemyIntentType = "charge";
+              const heavy = r(this.atkMin + 4, this.atkMax + 8);
+              s.enemyNextHeavy = heavy;
+              this._charged = true;
+              this._heavyValue = heavy;
+              s.enemyIntent = 0;
+              return;
+            }
+            s.enemyIntent = r(this.atkMin, this.atkMax);
+          }
+        };
+        return e;
+      }
+    },
+    {
+      id: "venom",
+      name4: "毒の女王",
+      name8: "大毒母（ヴェノム）",
+      src4: "./assets/boss_venom.png",
+      src8: "./assets/boss_venom2.png",
+      build(f){
+        const base = 16 + f*5;
+        const atkMin = 5 + f;
+        const atkMax = 9 + f*2;
+        const e = {
+          name: (f===8) ? this.name8 : this.name4,
+          src:  (f===8) ? this.src8  : this.src4,
+          maxhp: base,
+          hp: base,
+          atkMin, atkMax,
+          boss: true,
+          _step: 0,
+          _charged:false,
+          _heavyValue:0,
+          _recoil:false,
+          rollIntent(s, opts={}){
+            const forceNormal = !!opts.forceNormal;
+            s.enemyIntentMeta = null;
+            s.enemyIntentType = "normal";
+            s.enemyNextHeavy = 0;
+
+            // 反動
+            if(this._recoil){
+              s.enemyIntentType = "recoil";
+              s.enemyIntent = 0;
+              this._recoil = false;
+              return;
+            }
+
+            if(forceNormal){
+              this._charged = false;
+              this._heavyValue = 0;
+              s.enemyIntent = r(this.atkMin, this.atkMax);
+              return;
+            }
+
+            // 溜め済み → 強攻撃（毒付与）
+            if(this._charged){
+              s.enemyIntentType = "heavy";
+              s.enemyIntent = this._heavyValue;
+              this._charged = false;
+              this._heavyValue = 0;
+              s.enemyIntentMeta = {
+                apply: { poison: { turns: 3, dmg: 2 + Math.floor(s.floor/3) } },
+                intentText: `強攻撃:${s.enemyIntent}（毒）`
+              };
+              return;
+            }
+
+            // パターン（循環）
+            // 0:通常 / 1:毒牙 / 2:糸（スタン） / 3:溜め / 4:通常
+            const step = this._step % 5;
+            this._step++;
+
+            if(step===1){
+              // 毒牙
+              s.enemyIntent = r(this.atkMin, this.atkMax);
+              s.enemyIntentMeta = {
+                apply: { poison: { turns: 3, dmg: 2 + Math.floor(s.floor/3) } },
+                intentText: `毒攻撃:${s.enemyIntent}`
+              };
+              return;
+            }
+            if(step===2){
+              // 糸で拘束：小ダメ+スタン
+              s.enemyIntent = r(1,3) + Math.floor(s.floor/4);
+              s.enemyIntentMeta = {
+                apply: { stun: { turns: 1 } },
+                intentText: `拘束:${s.enemyIntent}（スタン）`
+              };
+              return;
+            }
+            if(step===3){
+              // 溜め → 次に強攻撃
+              s.enemyIntentType = "charge";
+              const heavy = r(this.atkMin + 5, this.atkMax + 9);
+              s.enemyNextHeavy = heavy;
+              this._charged = true;
+              this._heavyValue = heavy;
+              s.enemyIntent = 0;
+              return;
+            }
+            // 通常
+            s.enemyIntent = r(this.atkMin, this.atkMax);
+          }
+        };
+        return e;
+      }
+    },
+    {
+      id: "lich",
+      name4: "呪術のリッチ",
+      name8: "深淵の大リッチ",
+      src4: "./assets/boss_lich.png",
+      src8: "./assets/boss_lich2.png",
+      build(f){
+        const base = 14 + f*6;
+        const atkMin = 5 + f;
+        const atkMax = 9 + f*2;
+        const e = {
+          name: (f===8) ? this.name8 : this.name4,
+          src:  (f===8) ? this.src8  : this.src4,
+          maxhp: base,
+          hp: base,
+          atkMin, atkMax,
+          boss: true,
+          _step: 0,
+          rollIntent(s, opts={}){
+            const forceNormal = !!opts.forceNormal;
+            s.enemyIntentMeta = null;
+            s.enemyIntentType = "normal";
+            s.enemyNextHeavy = 0;
+
+            if(forceNormal){
+              s.enemyIntent = r(this.atkMin, this.atkMax);
+              return;
+            }
+
+            const step = this._step % 5;
+            this._step++;
+
+            if(step===0){
+              // 呪い：ダメなしで弱体+脆弱
+              s.enemyIntentType = "skill";
+              s.enemyIntent = 0;
+              s.enemyIntentMeta = {
+                apply: { weaken: { turns: 2 }, vulnerable: { turns: 2 } },
+                intentText: "呪い（弱体/脆弱）",
+                noDamage: true
+              };
+              return;
+            }
+            if(step===2){
+              // 吸収：攻撃＋回復
+              s.enemyIntent = r(this.atkMin, this.atkMax) + 2;
+              s.enemyIntentMeta = { drain: 0.5, intentText: `吸収:${s.enemyIntent}` };
+              return;
+            }
+            if(step===4){
+              // 火球：重め＋火傷
+              s.enemyIntentType = "heavy";
+              s.enemyIntent = r(this.atkMin+4, this.atkMax+8);
+              s.enemyIntentMeta = { apply: { burn: { turns: 2, dmg: 2 + Math.floor(s.floor/4) } }, intentText: `火球:${s.enemyIntent}（火傷）` };
+              return;
+            }
+            // 魔弾（通常）
+            s.enemyIntent = r(this.atkMin, this.atkMax);
+          }
+        };
+        return e;
+      }
+    },
+  ];
+
+  function pickBossIdForFloor(f){
+    // 4F/8Fごとに1体固定（同じ階で戻っても同じボス）
+    if(S.bossPicked[f]) return S.bossPicked[f];
+    const id = pick(BOSSES).id;
+    S.bossPicked[f] = id;
+    return id;
+  }
+
   function bossEnemyForFloor(f){
-    // ボスは「硬い＋痛い」＋少し派手
-    const base = 18 + f*5;     // 4F: 38 / 8F: 58
-    const atkMin = 6 + f;      // 4F:10 / 8F:14
-    const atkMax = 10 + f*2;   // 4F:18 / 8F:26
-    return {
-      name: (f===8) ? "深層の王" : "門番の巨獣",
-      maxhp: base,
-      hp: base,
-      atkMin,
-      atkMax,
-      boss: true
-    };
+    const id = pickBossIdForFloor(f);
+    const def = BOSSES.find(b=>b.id===id) || BOSSES[0];
+    return def.build(f);
   }
 
   function rollEnemyIntent(opts = {}){
     const forceNormal = !!opts.forceNormal;
 
-    // デフォルト
+    // 初期化
+    S.enemyIntentMeta = null;
+
+    // ボスは個別AI
+    if(S.enemy && typeof S.enemy.rollIntent === "function"){
+      S.enemy.rollIntent(S, { forceNormal });
+      return;
+    }
+
+    // 通常敵はランダム
     S.enemyIntentType = "normal";
     S.enemyNextHeavy = 0;
-
-    // ボス：強攻撃の次に「反動（隙）」を1ターン入れる
-    if(S.enemy?.boss && S.enemy._recoil){
-      S.enemyIntentType = "recoil";
-      S.enemyIntent = 0;
-      S.enemy._recoil = false;
-      return;
-    }
-
-    // ブレイク等で「今回は絶対通常」にしたい時
-    if(forceNormal){
-      S.enemy._charged = false;
-      S.enemy._heavyValue = 0;
-      S.enemyIntent = r(S.enemy.atkMin, S.enemy.atkMax);
-      return;
-    }
-
-    // ボス：溜め→強攻撃
-    if(S.enemy?.boss){
-      // すでに溜め済みなら次は強攻撃
-      if(S.enemy._charged){
-        S.enemyIntentType = "heavy";
-        S.enemyIntent = S.enemy._heavyValue || r(S.enemy.atkMin, S.enemy.atkMax);
-        S.enemy._charged = false;
-        S.enemy._heavyValue = 0;
-        return;
-      }
-
-      // たまに溜め（次の強攻撃を予告）
-      const chargeChance = 0.30;
-      if(Math.random() < chargeChance){
-        S.enemyIntentType = "charge";
-        const heavy = r(S.enemy.atkMin + 4, S.enemy.atkMax + 8);
-        S.enemyNextHeavy = heavy;
-        S.enemy._charged = true;
-        S.enemy._heavyValue = heavy;
-        S.enemyIntent = 0;
-        return;
-      }
-    }
-
-    // 通常攻撃
     S.enemyIntent = r(S.enemy.atkMin, S.enemy.atkMax);
   }
 
@@ -925,6 +1203,7 @@
       }
 
       dmg = applyRelicsHook("onAtk", dmg);
+      if(S.pStatus.weaken>0) dmg = Math.max(0, dmg - 2);
       S.enemy.hp = clamp(S.enemy.hp - dmg, 0, S.enemy.maxhp);
       S.last = `あなたの攻撃！ 敵に <b>${dmg}</b> ダメージ。`;
       gainFocus(1);
@@ -984,6 +1263,7 @@
       }
 
       dmg = applyRelicsHook("onAtk", dmg);
+      if(S.pStatus.weaken>0) dmg = Math.max(0, dmg - 2);
 
       // 小さな追加効果：次の敵攻撃 -2（“攻めたら少し楽になる”）
       S.enemyWeaken = Math.max(S.enemyWeaken, 2);
@@ -1074,6 +1354,7 @@
 
   function afterPlayerAction(){
     S.turns++;
+    if(S.pStatus.weaken>0) S.pStatus.weaken--; // 弱体の残りターンを進める
 
     if(S.enemy.hp <= 0){
       S.wins++;
@@ -1096,6 +1377,10 @@
           }
           S.floor++;
           S.nonCombatUsed = false;
+    S.pStatus = { poison:0, poisonDmg:0, burn:0, burnDmg:0, weaken:0, vulnerable:0, stun:0 };
+    S.eStatus = { poison:0, poisonDmg:0, burn:0, burnDmg:0, weaken:0, vulnerable:0, stun:0 };
+    S.enemyIntentMeta = null;
+    S.bossPicked = {};
           return screenChooseRoom();
         });
       }
@@ -1119,11 +1404,11 @@
     if(S.breakStun > 0){
       S.breakStun--;
       tickCooldownsSafe();  // ✅ ここでCD進行（ただしブレイク直後は止まる）
-    
+
       // ❌ rollEnemyIntent(); はしない（doBreakで既に1回決めた）
       ui();
       log(`${S.last}<br>敵はひるんで動けない！<br><small>次の攻撃は <b>${$("eintent").textContent}</b></small>`);
-      setChoices(makeCombatChoices());
+      presentPlayerChoices();
       return;
     }
 
@@ -1133,7 +1418,7 @@
       rollEnemyIntent(); // 次（heavy等）を決める
       ui();
       log(`${S.last}<br>敵は力を溜めている…！<br><small>次の攻撃は <b>${$("eintent").textContent}</b></small>`);
-      setChoices(makeCombatChoices());
+      presentPlayerChoices();
       return;
     }
 
@@ -1143,7 +1428,24 @@
       rollEnemyIntent(); // 次（normal）を決める
       ui();
       log(`${S.last}<br>敵は反動で隙だらけだ！<br><small>次の攻撃は <b>${$("eintent").textContent}</b></small>`);
-      setChoices(makeCombatChoices());
+      presentPlayerChoices();
+      return;
+    }
+
+    // 3.5) 特殊スキル（ダメなし）
+    if(S.enemyIntentMeta && S.enemyIntentMeta.noDamage){
+      const ap = S.enemyIntentMeta.apply || {};
+      if(ap.poison) addStatus("player","poison", ap.poison.turns, ap.poison.dmg||0);
+      if(ap.burn)   addStatus("player","burn",   ap.burn.turns,   ap.burn.dmg||0);
+      if(ap.weaken) addStatus("player","weaken", ap.weaken.turns);
+      if(ap.vulnerable) addStatus("player","vulnerable", ap.vulnerable.turns);
+      if(ap.stun)  addStatus("player","stun",  ap.stun.turns);
+
+      tickCooldownsSafe();
+      rollEnemyIntent();
+      ui();
+      log(`${S.last}<br>敵は不気味な術を放った…！<br><small>敵の次の攻撃は <b>${$("eintent").textContent}</b></small>`);
+      presentPlayerChoices();
       return;
     }
 
@@ -1176,11 +1478,39 @@
       S.evadeRate = 0;
     }
 
+    // 脆弱：被ダメ増加
+    if(S.pStatus.vulnerable>0){
+      dmg = Math.ceil(dmg * 1.25);
+    }
+
     S.block = 0;
     S.hp = clamp(S.hp - dmg, 0, S.maxhp);
 
-    // ★ 強攻撃だった場合：次のターンを「反動（隙）」にする（ボスのみ）
-    if(S.enemy?.boss && S.enemyIntentType === "heavy"){
+    // 脆弱の残りターンを進める（敵の攻撃を受けた後）
+    if(S.pStatus.vulnerable>0) S.pStatus.vulnerable--;
+
+    // 追加効果（毒/火傷/スタン/弱体など）
+    if(S.enemyIntentMeta && S.enemyIntentMeta.apply){
+      const ap = S.enemyIntentMeta.apply;
+      if(ap.poison) addStatus("player","poison", ap.poison.turns, ap.poison.dmg||0);
+      if(ap.burn)   addStatus("player","burn",   ap.burn.turns,   ap.burn.dmg||0);
+      if(ap.weaken) addStatus("player","weaken", ap.weaken.turns);
+      if(ap.vulnerable) addStatus("player","vulnerable", ap.vulnerable.turns);
+      if(ap.stun)  addStatus("player","stun",  ap.stun.turns);
+    }
+
+    // 吸収（与えたダメージの一部を回復）
+    let drainTxt = "";
+    if(S.enemyIntentMeta && S.enemyIntentMeta.drain && S.enemy){
+      const heal = Math.ceil(dmg * S.enemyIntentMeta.drain);
+      if(heal > 0){
+        S.enemy.hp = clamp(S.enemy.hp + heal, 0, S.enemy.maxhp);
+        drainTxt = ` <small>（敵HP+${heal}）</small>`;
+      }
+    }
+
+    // ★ 強攻撃だった場合：次のターンを「反動（隙）」にする（ボスのみ・対応ボスだけ）
+    if(S.enemy?.boss && S.enemyIntentType === "heavy" && ("_recoil" in S.enemy)){
       S.enemy._recoil = true;
     }
 
@@ -1193,11 +1523,11 @@
       return screenGameOver(atk, reduced, dmg);
     }
 
-    log(`${S.last}<br>敵の攻撃 ${atk}（軽減 ${reduced}）→ 被ダメ ${dmg}<br><small>敵の次の攻撃は <b>${$("eintent").textContent}</b></small>`);
-    setChoices(makeCombatChoices());
+    log(`${S.last}<br>敵の攻撃 ${atk}（軽減 ${reduced}）→ 被ダメ ${dmg}${drainTxt}<br><small>敵の次の攻撃は <b>${$("eintent").textContent}</b></small>`);
+    presentPlayerChoices();
   }
 
-  // -------------- ✅ ボス報酬（確定レリック） --------------
+  // -------------- ✅ ボス報酬（確定レリック） --------------（確定レリック） --------------
   function screenBossReward(onDone){
     playSE("relic");
     S.mode = "bossReward";
