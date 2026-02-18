@@ -818,9 +818,8 @@
     S.mode = "bossPrep";
     S.inBossPrep = true;
   
-    // ✅ ボス階に入ったタイミングでフラグを初期化（この階の準備用）
-    // もし別の場所で初期化しているなら、ここは不要ですが入れても安全です
-    if(S.bossPrepDone !== S.floor){
+    // ✅ この階で「最初にボス前に入った時だけ」初期化する
+    if(S.bossPrepInitFloor !== S.floor){
       S.bossPrepInitFloor = S.floor;
       S.bossPrepRestUsed = false;
       S.bossPrepShopUsed = false;
