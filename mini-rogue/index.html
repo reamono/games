@@ -511,6 +511,10 @@
     playerSrc: "./assets/player.png",
     lastBossFloorCleared: 0,
     treasureCount: 0,
+    bossPrepRestUsed: false,
+    bossPrepShopUsed: false,
+    bossPrepEventUsed: false,
+    bossPrepInitFloor: 0,  // ←追加：この階のbossPrepを初期化したか
     // --- 戦略要素 ---
     focus: 0,
     focusMax: 6,
@@ -813,37 +817,74 @@
   function screenBossPrep(){
     S.mode = "bossPrep";
     S.inBossPrep = true;
+  
+    // ✅ ボス階に入ったタイミングでフラグを初期化（この階の準備用）
+    // もし別の場所で初期化しているなら、ここは不要ですが入れても安全です
+    if(S.bossPrepDone !== S.floor){
+      S.bossPrepInitFloor = S.floor;
+      S.bossPrepRestUsed = false;
+      S.bossPrepShopUsed = false;
+      S.bossPrepEventUsed = false;
+    }
+  
     ui();
   
-    log(`<span class="pill warn">ボス前</span>この先に強敵の気配…。準備する？`);
+    const status = [
+      `回復:${S.bossPrepRestUsed ? "済" : "未"}`,
+      `商人:${S.bossPrepShopUsed ? "済" : "未"}`,
+      `イベント:${S.bossPrepEventUsed ? "済" : "未"}`
+    ].join(" / ");
+  
+    log(`<span class="pill warn">ボス前</span>この先に強敵の気配…。準備する？<br><small>${status}</small>`);
   
     setChoices([
-      { label:`🛏️ 休憩 <span class="muted">（回復して挑む）</span>`, cls:"okbtn", onClick: ()=>{
-        // 既存の休憩処理を「進む無し」で呼びたいなら、ここに簡易回復を直書きがラク
-        const baseHeal = r(6, 10);
-        let heal = applyRelicsHook("onRest", baseHeal);
-        S.hp = clamp(S.hp + heal, 0, S.maxhp);
-        ui();
-        log(`<span class="pill ok">準備</span>HP+${heal}。ボス戦へ…`);
-        setChoices([{label:"ボスへ", cls:"warnbtn", onClick: startBossFromPrep}]);
-      }},
-      { label:`❓ イベント <span class="muted">（一発勝負）</span>`, cls:"badbtn", onClick: ()=>{
-        // 既存イベントを流用。ただしイベント内の「進む」をボスへ繋ぐ必要がある
-        screenEvent();
-        // ここがポイント：screenEvent内の「進む」を後述の proceedAfterNonCombat() に差し替える
-      }},
-      { label:`🛒 商人 <span class="muted">（強化して挑む）</span>`, cls:"okbtn", onClick: ()=>{
-        screenShop();
-        // 同上：shop内の「進む」を proceedAfterNonCombat() に差し替える
-      }},
+      {
+        label:`🛏️ 回復 <span class="muted">（1回まで）</span>`,
+        cls:"okbtn",
+        disabled: S.bossPrepRestUsed,
+        onClick: ()=>{
+          S.bossPrepRestUsed = true;
+  
+          const baseHeal = r(6, 10);
+          let heal = applyRelicsHook("onRest", baseHeal);
+          S.hp = clamp(S.hp + heal, 0, S.maxhp);
+          ui();
+  
+          log(`<span class="pill ok">準備</span>HP+${heal}。`);
+          setChoices([{label:"戻る", cls:"primary", onClick: screenBossPrep}]);
+        }
+      },
+      {
+        label:`🛒 商人 <span class="muted">（1回まで / 複数購入OK）</span>`,
+        cls:"okbtn",
+        disabled: S.bossPrepShopUsed,
+        onClick: ()=>{
+          S.bossPrepShopUsed = true;
+          screenShop(); // ✅ 中で「出る」押したら bossPrep に戻すように後述で改造します
+        }
+      },
+      {
+        label:`❓ イベント <span class="muted">（任意 / 1回まで）</span>`,
+        cls:"badbtn",
+        disabled: S.bossPrepEventUsed,
+        onClick: ()=>{
+          S.bossPrepEventUsed = true;
+          screenEvent(); // ✅ 進むを押すと proceedAfterNonCombat() で bossPrep に戻る
+        }
+      },
+      {
+        label:`⚔️ ボスへ <span class="muted">（準備完了）</span>`,
+        cls:"warnbtn",
+        onClick: startBossFromPrep
+      },
     ]);
   }
 
   // -------------- ボス開始用 --------------
   function startBossFromPrep(){
     S.inBossPrep = false;
-    S.bossPrepDone = S.floor;   // この階の準備は済んだ
-    screenCombatStart(true);    // floorは4/8のままボス戦へ
+    S.bossPrepDone = S.floor;   // ✅ この階の準備は済んだ
+    screenCombatStart(true);
   }
   
   // -------------- 戦闘 --------------
@@ -1408,9 +1449,10 @@
   // -------------- 非戦闘の「進む」の挙動 --------------
   function proceedAfterNonCombat(){
     if(S.inBossPrep){
-      return startBossFromPrep(); // ボス前準備中だけはボスへ（階層は進めない）
+      // ✅ ボス前準備中は「ボス前メニューに戻る」（階層は進めない）
+      return screenBossPrep();
     }
-    // ✅ 非戦闘では階層を進めない
+    // ✅ 通常階は非戦闘で階層を進めない
     return screenChooseRoom();
   }
   
@@ -1443,39 +1485,67 @@
   function screenShop(){
     S.mode = "shop";
     ui();
-
+  
+    // ✅ このショップ訪問中に買ったもの（同じ商品を重複購入させないならこれ）
+    // 「小回復は何回でも」みたいにしたい場合は items に repeatable:true を付けて制御できます
+    if(!S._shopBought) S._shopBought = {};
+  
     const items = [
-      { name:"小回復", desc:"HP+8", cost: 10, buy: ()=>{
+      { key:"heal8", name:"小回復", desc:"HP+8", cost: 10, repeatable:false, buy: ()=>{
         let h=8; h = applyRelicsHook("onHeal", h);
         S.hp = clamp(S.hp + h, 0, S.maxhp);
       }},
-      { name:"最大HP強化", desc:"最大HP+3（HP+3）", cost: 16, buy: ()=>{
+      { key:"maxhp3", name:"最大HP強化", desc:"最大HP+3（HP+3）", cost: 16, repeatable:false, buy: ()=>{
         S.maxhp += 3;
         S.hp = clamp(S.hp + 3, 0, S.maxhp);
       }},
-      { name:"鉄壁", desc:"次の戦闘開始時 防御+10", cost: 12, buy: ()=>{
+      { key:"block10", name:"鉄壁", desc:"次の戦闘開始時 防御+10", cost: 12, repeatable:false, buy: ()=>{
         S.tempStartBlock = (S.tempStartBlock || 0) + 10;
       }},
     ];
-
-    log(`<span class="pill ok">商人</span>コインで強化できる。<br><small>所持コイン：<b>${S.gold}</b></small>`);
-
-    setChoices([
-      ...items.map(it=>({
-        label:`🛒 <b>${it.name}</b> <span class="muted">（${it.cost}コイン）</span><br><span class="muted">${it.desc}</span>`,
-        cls:"okbtn",
-        disabled: S.gold < it.cost,
-        onClick: ()=>{
-          if(S.gold < it.cost) return;
-          S.gold -= it.cost;
-          it.buy();
-          ui();
-          log(`<span class="pill ok">購入</span>${it.name} を購入した。`);
-          setChoices([{label:"進む", cls:"primary", onClick: proceedAfterNonCombat}]);
+  
+    function renderShop(messageHtml){
+      ui();
+  
+      const header = `<span class="pill ok">商人</span>コインで強化できる。<br><small>所持コイン：<b>${S.gold}</b></small>`;
+      log(messageHtml ? (header + `<br><br>${messageHtml}`) : header);
+  
+      const buyButtons = items.map(it=>{
+        const bought = !!S._shopBought[it.key];
+        const canBuy = (S.gold >= it.cost) && (!bought || it.repeatable);
+  
+        return {
+          label:`🛒 <b>${it.name}</b> <span class="muted">（${it.cost}コイン）</span>` +
+                (bought && !it.repeatable ? `<br><span class="muted">購入済み</span>` : ``) +
+                `<br><span class="muted">${it.desc}</span>`,
+          cls:"okbtn",
+          disabled: !canBuy,
+          onClick: ()=>{
+            if(!canBuy) return;
+            S.gold -= it.cost;
+            it.buy();
+            if(!it.repeatable) S._shopBought[it.key] = true;
+            renderShop(`<span class="pill ok">購入</span>${it.name} を購入した。`);
+          }
+        };
+      });
+  
+      setChoices([
+        ...buyButtons,
+        {
+          label: "🚪 ショップを出る",
+          cls:"primary",
+          onClick: ()=>{
+            // ✅ 訪問が終わったら購入履歴をリセット（次の訪問ではまた買える）
+            S._shopBought = {};
+            // ✅ ボス前ならbossPrepへ、通常なら扉選択へ（階層は進めない）
+            proceedAfterNonCombat();
+          }
         }
-      })),
-      { label:`🚶 何も買わずに進む`, cls:"primary", onClick: proceedAfterNonCombat }
-    ]);
+      ]);
+    }
+  
+    renderShop();
   }
 
   // -------------- 勝利/敗北 --------------
@@ -1528,6 +1598,10 @@
     S.bossPrepDone = 0;
     S.inBossPrep = false;
     S.nonCombatUsed = false;
+    S.bossPrepRestUsed = false;
+    S.bossPrepShopUsed = false;
+    S.bossPrepEventUsed = false;
+    S.bossPrepInitFloor = 0;
     $("pickCard").style.display = "none";
     $("mainCard").style.display = "block";
     ui();
