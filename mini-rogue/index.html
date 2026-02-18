@@ -241,6 +241,47 @@
       height:100%;
       object-fit:contain;
     }
+    /* ===== ダメージ数字（飛び文字） ===== */
+    .floatLayer{
+      position:absolute;
+      inset:0;
+      pointer-events:none;
+      overflow:hidden;
+    }
+    
+    .floatText{
+      position:absolute;
+      padding:6px 10px;
+      border-radius:999px;
+      font-weight:900;
+      font-size:14px;
+      line-height:1;
+      background:rgba(0,0,0,.45);
+      border:1px solid rgba(255,255,255,.12);
+      transform: translate(-50%, -50%);
+      will-change: transform, opacity;
+      animation: floatUp .65s ease-out forwards;
+      text-shadow: 0 2px 10px rgba(0,0,0,.5);
+    }
+    
+    .floatText.dmg { color: var(--bad); }
+    .floatText.heal{ color: var(--ok); }
+    .floatText.block{ color: var(--accent); }
+    .floatText.dot { color: var(--warn); } /* 毒/火傷など */
+    
+    @keyframes floatUp{
+      0%   { opacity:0; transform: translate(-50%, -50%) translateY(8px) scale(.95); }
+      15%  { opacity:1; transform: translate(-50%, -50%) translateY(0) scale(1); }
+      100% { opacity:0; transform: translate(-50%, -50%) translateY(-38px) scale(1.02); }
+    }
+    
+    /* ちょい派手版（クリティカルっぽい） */
+    .floatText.big{
+      font-size:18px;
+      padding:7px 12px;
+      border-color: rgba(255,211,109,.35);
+      box-shadow: 0 0 18px rgba(255,211,109,.12);
+    }
   </style>
 </head>
 <body>
@@ -290,6 +331,10 @@
         <div class="stageHud">
           <div class="enemyName" id="enemyName"></div>
         </div>
+
+        <!-- ✅ 追加：ダメージ表示用レイヤー -->
+        <div class="floatLayer" id="floatLayer"></div>
+        
       </div>
       <!-- ▲ 戦闘ビジュアル -->
     </section>
@@ -327,6 +372,32 @@
   const enemyWrap  = $("enemyWrap");
   const enemyNameEl = $("enemyName");
 
+  // --- ダメージ演出用 ---
+  const floatLayer = $("floatLayer");
+
+  function spawnFloatText(targetEl, text, kind="dmg", opts={}){
+    if(!floatLayer || !targetEl) return;
+  
+    const layerRect = floatLayer.getBoundingClientRect();
+    const rect = targetEl.getBoundingClientRect();
+  
+    // targetEl の中央上あたりに出す
+    const x = (rect.left + rect.right)/2 - layerRect.left;
+    const y = (rect.top + rect.bottom)/2 - layerRect.top - (opts.yOffset ?? 20);
+  
+    const el = document.createElement("div");
+    el.className = `floatText ${kind} ${opts.big ? "big" : ""}`;
+    el.textContent = text;
+  
+    // ランダムに少し左右へブレ（気持ち良くなる）
+    const jitterX = (Math.random()*14 - 7);
+    el.style.left = (x + jitterX) + "px";
+    el.style.top  = y + "px";
+  
+    floatLayer.appendChild(el);
+    el.addEventListener("animationend", ()=> el.remove());
+  }
+  
   // ===== Audio =====
   const AUDIO = {
     enabled: false,
@@ -549,12 +620,14 @@
       S.hp = clamp(S.hp - d, 0, S.maxhp);
       S.pStatus.poison--;
       prepend.push(`☠️ 毒で <b>${d}</b> ダメージ`);
+      spawnFloatText(playerWrap, `-${d}`, "dot");
     }
     if(S.pStatus.burn>0){
       const d = S.pStatus.burnDmg || (2 + Math.floor(S.floor/4));
       S.hp = clamp(S.hp - d, 0, S.maxhp);
       S.pStatus.burn--;
       prepend.push(`🔥 火傷で <b>${d}</b> ダメージ`);
+      spawnFloatText(playerWrap, `-${d}`, "dot");
     }
 
     if(prepend.length){
@@ -1268,6 +1341,7 @@
       dmg = applyRelicsHook("onAtk", dmg);
       if(S.pStatus.weaken>0) dmg = Math.max(0, dmg - 2);
       S.enemy.hp = clamp(S.enemy.hp - dmg, 0, S.enemy.maxhp);
+      spawnFloatText(enemyWrap, `-${dmg}`, "dmg", { big: dmg >= 12 });
       S.last = `あなたの攻撃！ 敵に <b>${dmg}</b> ダメージ。`;
       gainFocus(1);
       afterPlayerAction();
@@ -1278,6 +1352,7 @@
       playSE("guard");
       b = applyRelicsHook("onBlock", b);
       S.block = b;
+      spawnFloatText(playerWrap, `BLOCK +${b}`, "block");
       gainFocus(2);
       S.last = `防御！ 次の被ダメージを <b>${b}</b> 軽減。`;
       afterPlayerAction();
@@ -1288,6 +1363,7 @@
       playSE("heal");
       h = applyRelicsHook("onHeal", h);
       S.hp = clamp(S.hp + h, 0, S.maxhp);
+      spawnFloatText(playerWrap, `+${h}`, "heal");
       // 回復の追加効果：次の被ダメを固定で-2（フロアで少し伸ばす）
       S.healWard = 2 + Math.floor(S.floor / 3); // 例: 1-2F=2, 3-5F=3, 6-8F=4
       gainFocus(1);
@@ -1332,6 +1408,7 @@
       S.enemyWeaken = Math.max(S.enemyWeaken, 2);
 
       S.enemy.hp = clamp(S.enemy.hp - dmg, 0, S.enemy.maxhp);
+      spawnFloatText(enemyWrap, `-${dmg}`, "dmg", { big: dmg >= 12 });
       S.last = `💥 強攻撃！ 敵に <b>${dmg}</b> ダメージ。<br><small>圧力：次の敵攻撃 -<b>${S.enemyWeaken}</b></small>`;
       afterPlayerAction();
     };
@@ -1401,7 +1478,8 @@
       if(S.pStatus.weaken>0) dmg = Math.max(0, dmg - 2);
     
       S.enemy.hp = clamp(S.enemy.hp - dmg, 0, S.enemy.maxhp);
-    
+      spawnFloatText(enemyWrap, `-${dmg}`, "dmg", { big: dmg >= 12 });
+      
       // ✅ ここが状態異常付与：敵に毒
       addStatus("enemy", "poison", 3, 2 + Math.floor(S.floor/3));
     
@@ -1429,6 +1507,7 @@
       if(S.pStatus.weaken>0) dmg = Math.max(0, dmg - 2);
     
       S.enemy.hp = clamp(S.enemy.hp - dmg, 0, S.enemy.maxhp);
+      spawnFloatText(enemyWrap, `-${dmg}`, "dmg", { big: dmg >= 12 });
     
       // ✅ 敵に火傷
       addStatus("enemy", "burn", 2, 2 + Math.floor(S.floor/4));
@@ -1590,12 +1669,14 @@
       S.enemy.hp = clamp(S.enemy.hp - d, 0, S.enemy.maxhp);
       S.eStatus.poison--;
       lines.push(`☠️ 敵は毒で <b>${d}</b> ダメージ`);
+      spawnFloatText(enemyWrap, `-${d}`, "dot");
     }
     if(S.eStatus.burn > 0){
       const d = S.eStatus.burnDmg || (2 + Math.floor(S.floor/4));
       S.enemy.hp = clamp(S.enemy.hp - d, 0, S.enemy.maxhp);
       S.eStatus.burn--;
       lines.push(`🔥 敵は火傷で <b>${d}</b> ダメージ`);
+      spawnFloatText(enemyWrap, `-${d}`, "dot");
     }
   
     if(lines.length){
@@ -1726,6 +1807,10 @@
     S.block = 0;
     S.hp = clamp(S.hp - dmg, 0, S.maxhp);
 
+    // ✅ ここを追加
+    if(dmg > 0) spawnFloatText(playerWrap, `-${dmg}`, "dmg", { big: dmg >= 12 });
+    else spawnFloatText(playerWrap, `BLOCK`, "block");
+    
     // 脆弱の残りターンを進める（敵の攻撃を受けた後）
     if(S.pStatus.vulnerable>0) S.pStatus.vulnerable--;
 
@@ -2192,6 +2277,7 @@
     S.bossPrepEventUsed = false;
     S.bossPrepInitFloor = 0;
     S.potion = null;
+    S.bossPicked = {};
     $("pickCard").style.display = "none";
     $("mainCard").style.display = "block";
     ui();
