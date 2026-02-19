@@ -297,7 +297,10 @@
       opacity: 0.98;
       background: none;
     }
-    #live2dWrap.hidden{ display:none; }
+    #live2dWrap.hidden{
+      visibility: hidden;
+      opacity: 0;
+    }
     @media (max-width: 560px){
       #live2dWrap{ width: 260px; height: 420px; }
     }
@@ -659,7 +662,7 @@
       b.addEventListener("click", async ()=>{ // ← async を追加
         $("pickCard").style.display = "none";
         $("mainCard").style.display = "block"; // ✅ 下を戻す
-        setPlayerById(p.id);
+        await setPlayerById(p.id);
 
         // ✅ Live2Dをここで起動（1回だけ）
         //await L2D.init();
