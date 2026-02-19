@@ -430,9 +430,9 @@
         });
         wrap.appendChild(app.view);
         // ✅ 描画確認用（左上に緑の四角が出ればPIXIは描けてる）
-        const g = new PIXI.Graphics();
-        g.beginFill(0x00ff00).drawRect(10, 10, 40, 40).endFill();
-        app.stage.addChild(g);
+        // const g = new PIXI.Graphics();
+        // g.beginFill(0x00ff00).drawRect(10, 10, 40, 40).endFill();
+        // app.stage.addChild(g);
 
         // ✅ ここが「PIXI.live2dから取る」
         const live2dNS = PIXI.live2d;
@@ -448,21 +448,21 @@
         app.stage.addChild(model);
 
         // ✅ とにかく画面に出す（固定値）
-        model.x = app.renderer.width / 2;
-        model.y = app.renderer.height;
-        model.scale.set(0.4);
+        model.x = app.renderer.width * 0.30;
+        model.y = app.renderer.height * 1.02;
+        model.scale.set(0.25);
         model.alpha = 1;
         model.visible = true;
 
         // ✅ 1フレーム後に bounds を使ってフィット（高さ取得が安定する）
-        requestAnimationFrame(() => {
-          const b = model.getBounds();
-          const targetH = app.renderer.height * 0.95;
-          const s = targetH / (b.height || 1);
-          model.scale.set(s);
-          model.x = app.renderer.width * 0.35;
-          model.y = app.renderer.height * 1.02;
-        });
+        // requestAnimationFrame(() => {
+        //   const b = model.getBounds();
+        //   const targetH = app.renderer.height * 0.95;
+        //   const s = targetH / (b.height || 1);
+        //   model.scale.set(s);
+        //   model.x = app.renderer.width * 0.35;
+        //   model.y = app.renderer.height * 1.02;
+        // });
 
       //   function fit(){
       //     fitFn = fit;
