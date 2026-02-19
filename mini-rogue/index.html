@@ -442,6 +442,8 @@
         }
         const { Live2DModel } = live2dNS; // ← 取り出し
         model = await Live2DModel.from(MODEL_PATH);
+        console.log("[L2D] motionGroups:", model.internalModel.settings.motions);
+        console.log("[L2D] expressions:", model.internalModel.settings.expressions);
         console.log("[L2D] model loaded:", model);
 
         model.anchor.set(0.5, 1.0);
