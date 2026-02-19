@@ -610,7 +610,7 @@
           </div>
         </div>
       `;
-      b.addEventListener("click", ()=>{
+      b.addEventListener("click", async ()=>{ // ← async を追加
         $("pickCard").style.display = "none";
         $("mainCard").style.display = "block"; // ✅ 下を戻す
         setPlayerById(p.id);
