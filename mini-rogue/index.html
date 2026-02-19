@@ -285,15 +285,16 @@
 
     /* ===== Live2D layer ===== */
     #live2dWrap{
-      position: fixed;
-      left: 0;
-      bottom: 0;
-      width: 360px;
-      height: 520px;
-      z-index: 3;            /* appより下にしたいなら 1〜2 に */
-      pointer-events: none;  /* UI操作を邪魔しない */
-      opacity: 0.98;
+      position:absolute;
+      left:0;
+      bottom:0;
+      width:100%;
+      height:100%;
+      z-index:2;
+      pointer-events:none;
+      opacity:0.98;
     }
+    #live2dWrap.hidden{ display:none; }
     @media (max-width: 560px){
       #live2dWrap{ width: 260px; height: 420px; }
     }
@@ -302,7 +303,6 @@
 </head>
 <body>
 <!-- Live2D表示（左側固定） -->
-<div id="live2dWrap" aria-hidden="true"></div>
 <div class="app">
   <header>
     <h1>ミニローグ+（宝箱・イベント・3択）</h1>
@@ -340,6 +340,7 @@
       <div class="stage" id="stage">
         <div class="sprite player" id="playerWrap">
           <img id="playerImg" src="./assets/player.png" alt="Player">
+          <div id="live2dWrap" aria-hidden="true" class="hidden"></div>
         </div>
       
         <div class="sprite enemy" id="enemyWrap" aria-hidden="true">
@@ -412,10 +413,14 @@
       const wrap = document.getElementById("live2dWrap");
       if(!wrap) return;
       try{
+        PIXI.settings.PREFER_ENV = PIXI.ENV.WEBGL; // WebGL2じゃなくWebGL1寄りに
         app = new PIXI.Application({
           resizeTo: wrap,
           backgroundAlpha: 0,
-          antialias: true,
+          antialias: false,                  // スマホで安定
+          autoDensity: true,
+          resolution: Math.min(window.devicePixelRatio || 1, 2), // 上げすぎない
+          powerPreference: "high-performance",
         });
         wrap.appendChild(app.view);
 
@@ -432,6 +437,24 @@
         model.y = app.renderer.height * 1.02;
         model.scale.set(0.30); // サイズ調整
         app.stage.addChild(model);
+
+        function fit(){
+          const w = app.renderer.width;
+          const h = app.renderer.height;
+
+          model.anchor.set(0.5, 1);
+          model.x = w * 0.35;   // 左寄せ（好みで0.3〜0.45）
+          model.y = h * 1.02;
+
+          // 高さの何割に収めるか（0.95とか）
+          const targetH = h * 0.95;
+          const s = targetH / model.height;
+          model.scale.set(s);
+        }
+        fit();
+
+      // リサイズ対応
+      window.addEventListener("resize", ()=> setTimeout(fit, 50));
 
         // 初期モーション
         motion("Idle", 0);
@@ -591,6 +614,12 @@
         $("pickCard").style.display = "none";
         $("mainCard").style.display = "block"; // ✅ 下を戻す
         setPlayerById(p.id);
+
+        // ✅ Live2Dをここで起動（1回だけ）
+        await L2D.init();
+        // ✅ 戦闘に入るまでは隠す
+        document.getElementById("live2dWrap").classList.add("hidden");
+        
         enableAudioOnce(); // ✅ ユーザー操作内でアンロック
         playBGM();         // ✅ ここでBGM開始（以降ずっと流れる）
         screenChooseRoom();
@@ -1335,6 +1364,10 @@
     S.enemy = null;
     ui();
 
+    // 非戦闘画面は Live2D を隠して png を見せる
+    document.getElementById("live2dWrap").classList.add("hidden");
+    document.getElementById("playerImg").style.visibility = "visible";
+
     // ✅ 非戦闘をこの階で既に使っていたら、扉を戦闘だけにする（無限休憩/無限イベント防止）
     const rooms = S.nonCombatUsed
       ? ["combat","combat","combat"]
@@ -1466,6 +1499,9 @@
     setChoices(makeCombatChoices());
     playBGM();
     setIdle(true);
+    // 戦闘開始したら Live2D 表示＆ png を隠す（置き換え）
+    document.getElementById("live2dWrap").classList.remove("hidden");
+    document.getElementById("playerImg").style.visibility = "hidden";
   }
 
   function makeCombatChoices(){
@@ -2484,9 +2520,6 @@
   
   document.addEventListener("pointerdown", enableAudioOnce, { once:true });
 
-  // Live2D起動（file:// 直開きだとロード失敗しやすいのでローカルサーバ推奨）
-  L2D.init();
-  
   start();
 
   // ===== DEBUG (DevToolsから触る用) =====
