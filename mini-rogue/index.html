@@ -282,9 +282,27 @@
       border-color: rgba(255,211,109,.35);
       box-shadow: 0 0 18px rgba(255,211,109,.12);
     }
+
+    /* ===== Live2D layer ===== */
+    #live2dWrap{
+      position: fixed;
+      left: 0;
+      bottom: 0;
+      width: 360px;
+      height: 520px;
+      z-index: 3;            /* appより下にしたいなら 1〜2 に */
+      pointer-events: none;  /* UI操作を邪魔しない */
+      opacity: 0.98;
+    }
+    @media (max-width: 560px){
+      #live2dWrap{ width: 260px; height: 420px; }
+    }
+    
   </style>
 </head>
 <body>
+<!-- Live2D表示（左側固定） -->
+<div id="live2dWrap" aria-hidden="true"></div>
 <div class="app">
   <header>
     <h1>ミニローグ+（宝箱・イベント・3択）</h1>
@@ -360,6 +378,10 @@
   </main>
 </div>
 
+<!-- Pixi + Live2D -->
+<script src="https://cdn.jsdelivr.net/npm/pixi.js@7.x/dist/pixi.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/pixi-live2d-display@0.4.0/dist/index.min.js"></script>
+  
 <script>
 (() => {
   const $ = (id)=>document.getElementById(id);
@@ -375,6 +397,83 @@
   // --- ダメージ演出用 ---
   const floatLayer = $("floatLayer");
 
+    // ===== Live2D Controller =====
+  // ※ model3.json は「Motions/Expressionsを追記した版」を指す
+  const L2D = (() => {
+    const MODEL_PATH = "./assets/live2d/huohuo/huohuo.model3.json"; // ←あなたの配置に合わせて変更
+    let app = null;
+    let model = null;
+    let current = { motion:"Idle", exp:null };
+
+    async function init(){
+      const wrap = document.getElementById("live2dWrap");
+      if(!wrap) return;
+      try{
+        app = new PIXI.Application({
+          resizeTo: wrap,
+          backgroundAlpha: 0,
+          antialias: true,
+        });
+        wrap.appendChild(app.view);
+
+        model = await PIXI.live2d.Live2DModel.from(MODEL_PATH);
+        model.anchor.set(0.5, 1);
+        model.x = app.renderer.width * 0.55;
+        model.y = app.renderer.height * 1.02;
+        model.scale.set(0.30); // サイズ調整
+        app.stage.addChild(model);
+
+        // 初期モーション
+        motion("Idle", 0);
+      }catch(e){
+        console.warn("[L2D] init failed:", e);
+      }
+    }
+
+    function motion(group, index=0){
+      if(!model) return;
+      try{
+        current.motion = group;
+        model.motion(group, index);
+      }catch(e){
+        console.warn("[L2D] motion failed:", group, e);
+      }
+    }
+
+    function expression(name){
+      if(!model) return;
+      try{
+        current.exp = name;
+        model.expression(name);
+      }catch(e){
+        console.warn("[L2D] expression failed:", name, e);
+      }
+    }
+
+    // 行動タイプ → モーション/表情（好みで調整）
+    function onAction(type){
+      switch(type){
+        case "attack": motion("Attack", 0); break;
+        case "strong": motion("Attack", 0); expression("angry"); break;
+        case "guard":  motion("Skill", 0); break;
+        case "dodge":  motion("Skill", 0); break;
+        case "heal":   motion("Skill", 0); expression("baozhen"); break;
+        case "cleanse":motion("Skill", 0); expression("white_eyes"); break;
+        case "hit":    motion("Damage", 0); break;
+        case "win":    motion("Win", 0); break;
+        case "lose":   motion("Lose", 0); break;
+        default:       motion("Idle", 0); break;
+      }
+
+      // モーション後にIdleへ戻す（短め）
+      if(["attack","strong","guard","dodge","heal","cleanse","hit"].includes(type)){
+        setTimeout(()=> motion("Idle", 0), 900);
+      }
+    }
+
+    return { init, onAction, motion, expression };
+  })();
+  
   function spawnFloatText(targetEl, text, kind="dmg", opts={}){
     if(!floatLayer || !targetEl) return;
   
@@ -1382,6 +1481,7 @@
     };
     
     const doAttack = () => {
+      L2D.onAction("attack");
       let dmg = r(atkMin, atkMax);
       playAnim(playerWrap, "attack", 220);         // 踏み込み
       playAnim(enemyWrap, "hurt", 260);            // 被弾フラッシュ
@@ -1404,6 +1504,7 @@
     };
 
     const doGuard = () => {
+      L2D.onAction("guard");
       let b = r(5, 8) + S.floor;
       playSE("guard");
       b = applyRelicsHook("onBlock", b);
@@ -1415,6 +1516,7 @@
     };
 
     const doHeal = () => {
+      L2D.onAction("heal");
       let h = r(4, 7);
       playSE("heal");
       h = applyRelicsHook("onHeal", h);
@@ -1428,6 +1530,7 @@
     };
 
     const doEvade = () => {
+      L2D.onAction("dodge");
       // 次の被ダメを60%軽減（強いので固定で60%くらいが扱いやすい）
       S.evadeRate = 0.60;
       gainFocus(2);
@@ -1436,6 +1539,7 @@
     };
 
     const doStrongAttack = () => {
+      L2D.onAction("strong");
       const cost = 3;
       if(!spendFocus(cost)){
         S.last = `❌ 集中が足りない（必要${cost}）`;
@@ -1574,6 +1678,7 @@
     };
     
     const doCleanse = () => {
+      L2D.onAction("cleanse");
       const cost = 2;
       if(!spendFocus(cost)){
         S.last = `❌ 集中が足りない（必要${cost}）`;
@@ -1835,6 +1940,7 @@
     }
 
     // 4) 通常 or 強攻撃
+    L2D.onAction("hit");
     playAnim(enemyWrap, "attack", 220);
     playAnim(playerWrap, "hurt", 260);
     playAnim(playerWrap, "knockback", 200);
@@ -2292,6 +2398,7 @@
 
   // -------------- 勝利/敗北 --------------
   function screenVictory(){
+    L2D.onAction("win");
     stopBGM();
     playSE("win");
     S.mode = "victory";
@@ -2301,6 +2408,7 @@
   }
 
   function screenGameOver(atk, reduced, dmg){
+    L2D.onAction("lose");
     stopBGM();
     playSE("lose");
     S.mode = "gameover";
@@ -2365,6 +2473,9 @@
   });
   
   document.addEventListener("pointerdown", enableAudioOnce, { once:true });
+
+  // Live2D起動（file:// 直開きだとロード失敗しやすいのでローカルサーバ推奨）
+  L2D.init();
   
   start();
 
