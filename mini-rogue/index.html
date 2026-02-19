@@ -586,6 +586,8 @@
   const PLAYERS = [
     { id:"p1", name:"プレイヤー1", src:"./assets/player.png" },
     { id:"p2", name:"プレイヤー2", src:"./assets/player2.png" },
+    // ✅ 追加：Live2Dキャラ
+    { id:"p3", name:"プレイヤー3（Live2D）", src:"./assets/player.png", live2d:true },
   ];
 
   function showPlayerPick(){
@@ -628,18 +630,45 @@
     });
   }
 
-  function setPlayerById(id){
+  async function setPlayerById(id){
     const p = PLAYERS.find(x=>x.id===id) || PLAYERS[0];
     S.playerId = p.id;
     S.playerSrc = p.src;
-  
+
     const img = $("playerImg");
-    img.src = p.src;
+
+    // ✅ p3(Live2D)なら png を隠して Live2D を表示
+    if(p.live2d){
+      img.style.visibility = "hidden";
+
+      // Live2Dが未初期化なら初期化
+      if(!window.__L2D_READY){
+        await L2D.init();
+        window.__L2D_READY = true;
+      }
+
+      // 選択画面でも確認したいなら表示（戦闘だけにしたいなら hidden にしてOK）
+      document.getElementById("live2dWrap").classList.remove("hidden");
+    }else{
+      // ✅ p1/p2は通常画像表示
+      img.style.visibility = "visible";
+      img.src = p.src;
+
+      // Live2Dは隠す（残ってたら邪魔なので）
+      const w = document.getElementById("live2dWrap");
+      if(w) w.classList.add("hidden");
+    }
+
+    // ステータス差分
     if(p.id==="p1"){
       S.maxhp = 24; S.hp = 24;
     }else if(p.id==="p2"){
       S.gold += 15;
+    }else if(p.id==="p3"){
+      // Live2Dキャラ用の特典（好きに調整）
+      S.maxhp = 22; S.hp = 22;
     }
+
     ui();
   }
   
