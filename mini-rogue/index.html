@@ -290,20 +290,17 @@
       bottom: 0;
       width: 100%;
       height: 100%;
-      min-width: 200px;
-      min-height: 200px;
       z-index: 2;
       pointer-events: none;
-      opacity: 0.98;
       background: none;
     }
     #live2dWrap.hidden{
       visibility: hidden;
       opacity: 0;
     }
-    @media (max-width: 560px){
+    /* @media (max-width: 560px){
       #live2dWrap{ width: 260px; height: 420px; }
-    }
+    } */
     
   </style>
 </head>
@@ -457,42 +454,56 @@
         model.visible = true;
         model.alpha = 1;
 
+        // requestAnimationFrame(() => {
+        //   const b = model.getBounds();
+
+        //   const targetH = app.renderer.height * 0.90;    // 90%に収める
+        //   const s = targetH / (b.height || 1);
+        //   model.scale.set(s);
+
+        //   // 位置（左寄せ＆下に接地）
+        //   model.x = app.renderer.width * 0.30;
+        //   model.y = app.renderer.height * 1.00;
+        // });
+
+        // ✅ 2フレーム待ってからfit（wrap/rendererサイズが確定してから）
         requestAnimationFrame(() => {
-          const b = model.getBounds();
-
-          const targetH = app.renderer.height * 0.90;    // 90%に収める
-          const s = targetH / (b.height || 1);
-          model.scale.set(s);
-
-          // 位置（左寄せ＆下に接地）
-          model.x = app.renderer.width * 0.30;
-          model.y = app.renderer.height * 1.00;
+          requestAnimationFrame(() => {
+            resize(); // resizeの中でfit()も呼ぶ
+          });
         });
-
-      //   function fit(){
-      //     fitFn = fit;
-      //     const w = app.renderer.width;
-      //     const h = app.renderer.height;
-
-      //     model.anchor.set(0.5, 1);
-      //     model.x = w * 0.35;   // 左寄せ（好みで0.3〜0.45）
-      //     model.y = h * 1.02;
-
-      //     // 高さの何割に収めるか（0.95とか）
-      //     const targetH = h * 0.95;
-      //     const s = targetH / model.height;
-      //     model.scale.set(s);
-      //   }
-      //   fit();
-
-      // // リサイズ対応
-      // window.addEventListener("resize", ()=> setTimeout(fit, 50));
 
         // 初期モーション
         motion("Idle", 0);
       }catch(e){
         console.warn("[L2D] init failed:", e);
       }
+    }
+
+    function fit(){
+      if(!app || !model) return;
+
+      const wrap = document.getElementById("live2dWrap");
+      const w = wrap.clientWidth;
+      const h = wrap.clientHeight;
+      if(w <= 0 || h <= 0) return;
+
+      // 下基準（足を地面に）
+      model.anchor.set(0.5, 1.0);
+
+      // 一旦バウンディングを安定させるため、scale=1で測る
+      model.scale.set(1);
+
+      const b = model.getBounds();
+
+      // 高さフィット（iPadで足が切れやすいので0.90〜0.95推奨）
+      const targetH = h * 0.92;
+      const s = targetH / (b.height || 1);
+      model.scale.set(s);
+
+      // 位置：左寄せ＆下接地
+      model.x = w * 0.30;
+      model.y = h * 0.98; // 1.02だと端末によって下が切れやすい
     }
 
     function resize(){
@@ -509,7 +520,8 @@
       app.view.style.width  = "100%";
       app.view.style.height = "100%";
 
-      if(fitFn) fitFn();
+      // if(fitFn) fitFn();
+      fit();
     }
 
     function motion(group, index=0){
@@ -553,7 +565,7 @@
       }
     }
 
-    return { init, resize, onAction, motion, expression };
+    return { init, resize, fit, onAction, motion, expression };
   })();
   
   function spawnFloatText(targetEl, text, kind="dmg", opts={}){
