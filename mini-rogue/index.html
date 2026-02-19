@@ -623,9 +623,7 @@
         setPlayerById(p.id);
 
         // ✅ Live2Dをここで起動（1回だけ）
-        await L2D.init();
-        // ✅ 戦闘に入るまでは隠す
-        document.getElementById("live2dWrap").classList.add("hidden");
+        //await L2D.init();
         
         enableAudioOnce(); // ✅ ユーザー操作内でアンロック
         playBGM();         // ✅ ここでBGM開始（以降ずっと流れる）
@@ -1539,9 +1537,15 @@
     setChoices(makeCombatChoices());
     playBGM();
     setIdle(true);
-    // 戦闘開始したら Live2D 表示＆ png を隠す（置き換え）
-    document.getElementById("live2dWrap").classList.remove("hidden");
-    document.getElementById("playerImg").style.visibility = "hidden";
+    // 戦闘開始：選択キャラに応じて表示切替
+    const p = PLAYERS.find(x => x.id === S.playerId);
+    if(p && p.live2d){
+      document.getElementById("live2dWrap").classList.remove("hidden");
+      document.getElementById("playerImg").style.visibility = "hidden";
+    }else{
+      document.getElementById("live2dWrap").classList.add("hidden");
+      document.getElementById("playerImg").style.visibility = "visible";
+    }
   }
 
   function makeCombatChoices(){
