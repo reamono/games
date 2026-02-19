@@ -284,15 +284,18 @@
     }
 
     /* ===== Live2D layer ===== */
-    #live2dWrap{
-      position:absolute;
-      left:0;
-      bottom:0;
-      width:100%;
-      height:100%;
-      z-index:2;
-      pointer-events:none;
-      opacity:0.98;
+    #live2dWrap {
+      position: absolute;
+      left: 0;
+      bottom: 0;
+      width: 100%;
+      height: 100%;
+      min-width: 200px;
+      min-height: 200px;
+      z-index: 2;
+      pointer-events: none;
+      opacity: 0.98;
+      background: none;
     }
     #live2dWrap.hidden{ display:none; }
     @media (max-width: 560px){
@@ -412,6 +415,8 @@
     async function init(){
       const wrap = document.getElementById("live2dWrap");
       if(!wrap) return;
+      // すでにcanvasがある場合は再初期化しない
+      if(wrap.querySelector("canvas")) return;
       try{
         PIXI.settings.PREFER_ENV = PIXI.ENV.WEBGL; // WebGL2じゃなくWebGL1寄りに
         app = new PIXI.Application({
@@ -1394,8 +1399,14 @@
     ui();
 
     // 非戦闘画面は Live2D を隠して png を見せる
-    document.getElementById("live2dWrap").classList.add("hidden");
-    document.getElementById("playerImg").style.visibility = "visible";
+    const p = PLAYERS.find(x => x.id === S.playerId);
+    if (p && p.live2d) {
+      document.getElementById("live2dWrap").classList.remove("hidden");
+      document.getElementById("playerImg").style.visibility = "hidden";
+    } else {
+      document.getElementById("live2dWrap").classList.add("hidden");
+      document.getElementById("playerImg").style.visibility = "visible";
+    }
 
     // ✅ 非戦闘をこの階で既に使っていたら、扉を戦闘だけにする（無限休憩/無限イベント防止）
     const rooms = S.nonCombatUsed
