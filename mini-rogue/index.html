@@ -380,7 +380,14 @@
 
 <!-- Pixi + Live2D -->
 <script src="https://cdn.jsdelivr.net/npm/pixi.js@7.x/dist/pixi.min.js"></script>
-<script src="https://cdn.jsdelivr.net/npm/pixi-live2d-display@0.4.0/dist/index.min.js"></script>
+ <!-- Cubism Core（できればローカルに置く。GitHub Pagesで安定） -->
+ <script src="./live2dcubismcore.min.js"></script>
+
+ <!-- Pixi（v7系推奨。pixi-live2d-displayの新しめと相性が良い） -->
+ <script src="https://cdn.jsdelivr.net/npm/pixi.js@7/dist/pixi.min.js"></script>
+
+ <!-- Cubism4専用バンドル -->
+ <script src="https://cdn.jsdelivr.net/npm/pixi-live2d-display/dist/cubism4.min.js"></script>
   
 <script>
 (() => {
@@ -416,7 +423,14 @@
         });
         wrap.appendChild(app.view);
 
-        model = await PIXI.live2d.Live2DModel.from(MODEL_PATH);
+        // ✅ ここが「PIXI.live2dから取る」
+        const live2dNS = PIXI.live2d;
+        if(!live2dNS || !live2dNS.Live2DModel){
+          console.warn("[L2D] PIXI.live2d.Live2DModel is not available. Check script order / cubism4 + core.");
+          return;
+        }
+        const { Live2DModel } = live2dNS; // ← 取り出し
+        model = await Live2DModel.from(MODEL_PATH);
         model.anchor.set(0.5, 1);
         model.x = app.renderer.width * 0.55;
         model.y = app.renderer.height * 1.02;
