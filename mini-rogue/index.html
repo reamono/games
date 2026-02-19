@@ -409,6 +409,7 @@
   const L2D = (() => {
     const MODEL_PATH = "./assets/live2d/huohuo/huohuo.model3.json"; // ←あなたの配置に合わせて変更
     let app = null;
+    let fitFn = null;
     let model = null;
     let current = { motion:"Idle", exp:null };
 
@@ -444,6 +445,7 @@
         app.stage.addChild(model);
 
         function fit(){
+          fitFn = fit;
           const w = app.renderer.width;
           const h = app.renderer.height;
 
@@ -466,6 +468,23 @@
       }catch(e){
         console.warn("[L2D] init failed:", e);
       }
+    }
+
+    function resize(){
+      const wrap = document.getElementById("live2dWrap");
+      if(!app || !wrap) return;
+
+      const w = wrap.clientWidth;
+      const h = wrap.clientHeight;
+      if(w <= 0 || h <= 0) return;
+
+      app.renderer.resize(w, h);
+
+      // 念のためcanvasも100%に寄せる（環境差対策）
+      app.view.style.width  = "100%";
+      app.view.style.height = "100%";
+
+      if(fitFn) fitFn();
     }
 
     function motion(group, index=0){
@@ -509,7 +528,7 @@
       }
     }
 
-    return { init, onAction, motion, expression };
+    return { init, resize, onAction, motion, expression };
   })();
   
   function spawnFloatText(targetEl, text, kind="dmg", opts={}){
@@ -652,6 +671,8 @@
 
       // 選択画面でも確認したいなら表示（戦闘だけにしたいなら hidden にしてOK）
       document.getElementById("live2dWrap").classList.remove("hidden");
+      // 追加：2フレーム待ってから強制リサイズ（確実）
+      requestAnimationFrame(() => requestAnimationFrame(() => L2D.resize()));
     }else{
       // ✅ p1/p2は通常画像表示
       img.style.visibility = "visible";
@@ -1542,6 +1563,8 @@
     if(p && p.live2d){
       document.getElementById("live2dWrap").classList.remove("hidden");
       document.getElementById("playerImg").style.visibility = "hidden";
+      // 追加：2フレーム待ってから強制リサイズ（確実）
+      requestAnimationFrame(() => requestAnimationFrame(() => L2D.resize()));
     }else{
       document.getElementById("live2dWrap").classList.add("hidden");
       document.getElementById("playerImg").style.visibility = "visible";
