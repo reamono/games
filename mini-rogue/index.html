@@ -429,6 +429,10 @@
           powerPreference: "high-performance",
         });
         wrap.appendChild(app.view);
+        // ✅ 描画確認用（左上に緑の四角が出ればPIXIは描けてる）
+        const g = new PIXI.Graphics();
+        g.beginFill(0x00ff00).drawRect(10, 10, 40, 40).endFill();
+        app.stage.addChild(g);
 
         // ✅ ここが「PIXI.live2dから取る」
         const live2dNS = PIXI.live2d;
@@ -438,30 +442,46 @@
         }
         const { Live2DModel } = live2dNS; // ← 取り出し
         model = await Live2DModel.from(MODEL_PATH);
-        model.anchor.set(0.5, 1);
-        model.x = app.renderer.width * 0.55;
-        model.y = app.renderer.height * 1.02;
-        model.scale.set(0.30); // サイズ調整
+        console.log("[L2D] model loaded:", model);
+
+        model.anchor.set(0.5, 1.0);
         app.stage.addChild(model);
 
-        function fit(){
-          fitFn = fit;
-          const w = app.renderer.width;
-          const h = app.renderer.height;
+        // ✅ とにかく画面に出す（固定値）
+        model.x = app.renderer.width / 2;
+        model.y = app.renderer.height;
+        model.scale.set(0.4);
+        model.alpha = 1;
+        model.visible = true;
 
-          model.anchor.set(0.5, 1);
-          model.x = w * 0.35;   // 左寄せ（好みで0.3〜0.45）
-          model.y = h * 1.02;
-
-          // 高さの何割に収めるか（0.95とか）
-          const targetH = h * 0.95;
-          const s = targetH / model.height;
+        // ✅ 1フレーム後に bounds を使ってフィット（高さ取得が安定する）
+        requestAnimationFrame(() => {
+          const b = model.getBounds();
+          const targetH = app.renderer.height * 0.95;
+          const s = targetH / (b.height || 1);
           model.scale.set(s);
-        }
-        fit();
+          model.x = app.renderer.width * 0.35;
+          model.y = app.renderer.height * 1.02;
+        });
 
-      // リサイズ対応
-      window.addEventListener("resize", ()=> setTimeout(fit, 50));
+      //   function fit(){
+      //     fitFn = fit;
+      //     const w = app.renderer.width;
+      //     const h = app.renderer.height;
+
+      //     model.anchor.set(0.5, 1);
+      //     model.x = w * 0.35;   // 左寄せ（好みで0.3〜0.45）
+      //     model.y = h * 1.02;
+
+      //     // 高さの何割に収めるか（0.95とか）
+      //     const targetH = h * 0.95;
+      //     const s = targetH / model.height;
+      //     model.scale.set(s);
+      //   }
+      //   fit();
+
+      // // リサイズ対応
+      // window.addEventListener("resize", ()=> setTimeout(fit, 50));
 
         // 初期モーション
         motion("Idle", 0);
