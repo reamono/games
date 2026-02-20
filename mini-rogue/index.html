@@ -521,18 +521,20 @@
         try {
           const s = model.internalModel.settings;
 
-          // Expressions
-          const exps = (s.expressions || []).map(e => e.name);
-          console.log("[L2D] expressions:", exps);
+          console.log("[L2D] settings keys =", Object.keys(s));
+          console.log("[L2D] settings raw =", s);
 
-          // Motions (group -> names)
-          const motions = s.motions || {};
-          const motionGroups = Object.keys(motions);
-          console.log("[L2D] motion groups:", motionGroups);
-          motionGroups.forEach(g=>{
-            console.log(`[L2D] motions[${g}] =`, (motions[g]||[]).map(m=>m.file));
-          });
-        } catch(e){
+          // よくある候補を全部見る
+          console.log("[L2D] settings.expressions =", s.expressions);
+          console.log("[L2D] settings.Expressions =", s.Expressions);
+
+          console.log("[L2D] settings.motions =", s.motions);
+          console.log("[L2D] settings.Motions =", s.Motions);
+
+          // expressions配列の中身を先頭だけ覗く
+          const ex = s.expressions ?? s.Expressions ?? [];
+          console.log("[L2D] expressions[0..3] =", ex.slice(0, 4));
+        } catch (e) {
           console.warn("settings dump failed", e);
         }
 
