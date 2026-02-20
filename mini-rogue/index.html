@@ -359,6 +359,14 @@
         
       </div>
       <!-- ▲ 戦闘ビジュアル -->
+      <!-- ✅ 追加：Live2Dパラメータ調査UI（デバッグ用） -->
+      <div id="l2dDebug" class="card" style="margin-top:12px; display:none;">
+        <div class="log">
+          <span class="pill neu">Live2D Param Debug</span>
+          スライダーで Param を動かして「何が動くか」確認できます。
+        </div>
+        <div id="l2dSliders" class="choices"></div>
+      </div>
     </section>
 
     <!-- ▼ キャラ選択（ゲーム開始前） -->
@@ -413,6 +421,59 @@
     let model = null;
     let current = { motion:"Idle", exp:null };
 
+    function showDebugUI(on=true){
+      const box = document.getElementById("l2dDebug");
+      if(box) box.style.display = on ? "block" : "none";
+    }
+
+    function makeParamSlider(id){
+      const host = document.getElementById("l2dSliders");
+      if(!host || !model) return;
+
+      const cm = model.internalModel.coreModel;
+      const min = cm.getParameterMinimumValueById(id);
+      const max = cm.getParameterMaximumValueById(id);
+      const def = cm.getParameterDefaultValueById(id);
+
+      const row = document.createElement("div");
+      row.className = "card";
+      row.style.padding = "10px";
+      row.style.borderRadius = "14px";
+
+      row.innerHTML = `
+        <div style="display:flex; justify-content:space-between; gap:8px; align-items:center;">
+          <b style="font-size:13px;">${id}</b>
+          <span class="muted" style="font-size:12px;">min:${min} max:${max} def:${def}</span>
+        </div>
+        <input type="range" min="${min}" max="${max}" step="0.01" value="${def}"
+          style="width:100%; margin-top:8px;">
+        <div class="muted" style="font-size:12px; margin-top:6px;">
+          val: <span class="val">${def}</span>
+          <button class="reset" style="margin-left:8px; padding:4px 8px; border-radius:10px;">reset</button>
+        </div>
+      `;
+
+      const slider = row.querySelector("input");
+      const valEl  = row.querySelector(".val");
+      const reset  = row.querySelector(".reset");
+
+      slider.addEventListener("input", ()=>{
+        const v = parseFloat(slider.value);
+        valEl.textContent = v.toFixed(2);
+        cm.setParameterValueById(id, v);
+        cm.update();
+      });
+
+      reset.addEventListener("click", ()=>{
+        slider.value = def;
+        valEl.textContent = def.toFixed(2);
+        cm.setParameterValueById(id, def);
+        cm.update();
+      });
+
+      host.appendChild(row);
+    }
+
     async function init(){
       const wrap = document.getElementById("live2dWrap");
       if(!wrap) return;
@@ -442,6 +503,17 @@
         }
         const { Live2DModel } = live2dNS; // ← 取り出し
         model = await Live2DModel.from(MODEL_PATH);
+
+        // ✅ デバッグUIを表示してスライダーを作る（必要なParamだけ）
+        showDebugUI(true);
+        document.getElementById("l2dSliders").innerHTML = "";
+
+        // まずは調べたい候補だけ
+        ["Param105","Param88","Param89","Param110","Param111","Param115","Param119",
+        "ParamBodyAngleX","ParamBodyAngleY","ParamBodyAngleZ",
+        "ParamAngleX","ParamAngleY","ParamAngleZ"
+        ].forEach(makeParamSlider);
+
         // ★ パラメータID一覧を安全に出す（落ちない）
         const cm = model.internalModel.coreModel;
         console.log("[L2D] coreModel keys:", Object.keys(cm));
