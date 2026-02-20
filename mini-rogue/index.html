@@ -66,6 +66,16 @@
     }
     /* リスタートは負けた時だけ表示（JSで切替） */
     #restart{ display:none; }
+    /* 上部HUDをスクロール追従 */
+    .stats {
+      position: sticky;
+      top: 0;
+      z-index: 50;
+      backdrop-filter: blur(10px);
+      background: rgba(18,26,51,.78);
+      padding-top: 10px;
+      margin-top: -10px; /* 見た目の段差調整 */
+    }
     /* ===== 戦闘ビジュアル ===== */
     .stage{
       margin-top:12px;
@@ -211,14 +221,6 @@
       animation: hitFlash .26s ease-out 1, knockbackPlayer .18s ease-out 1;
     }
     
-    /* @media (prefers-reduced-motion: reduce){
-      #playerWrap.attack img, #enemyWrap.attack img,
-      #playerWrap.hurt img, #enemyWrap.hurt img,
-      #playerWrap.shake, #enemyWrap.shake,
-      #playerWrap.heal img{
-        animation: none !important;
-      }
-    } */
     .pickRow{
       display:flex;
       gap:12px;
@@ -298,9 +300,17 @@
       visibility: hidden;
       opacity: 0;
     }
-    /* @media (max-width: 560px){
-      #live2dWrap{ width: 260px; height: 420px; }
-    } */
+    /* スマホはコンパクトHUDに */
+    @media (max-width: 520px){
+      .stats{
+        grid-template-columns: 1fr; /* まず1列化 */
+        gap: 8px;
+      }
+      .stat{
+        padding: 10px;
+      }
+      .value{ font-size: 16px; }
+    }
 
     /* トグルボタン用終わったら削除 */
     .l2dToggleOn{
@@ -308,6 +318,111 @@
       border-color: rgba(255,211,109,.35);
     }
     
+    /* ===== Combat Action Bar + Bottom Sheet ===== */
+    .actionBar.hidden,
+    .sheetBackdrop.hidden,
+    .bottomSheet.hidden{
+      display:none;
+    }
+
+    .actionBar{
+      position: fixed;
+      left: 50%;
+      transform: translateX(-50%);
+      bottom: calc(10px + env(safe-area-inset-bottom));
+      width: min(640px, calc(100% - 24px));
+      z-index: 120;
+    }
+
+    .actionBarInner{
+      display: grid;
+      grid-template-columns: repeat(6, 1fr);
+      gap: 10px;
+      background: rgba(18,26,51,.92);
+      border: 1px solid rgba(255,255,255,.10);
+      box-shadow: var(--shadow);
+      border-radius: 18px;
+      padding: 10px;
+      backdrop-filter: blur(10px);
+    }
+
+    .actionBarInner button{
+      padding: 12px 10px;
+      text-align: center;
+      font-size: 14px;
+      border-radius: 14px;
+    }
+
+    /* 画面下のバーに隠れないように（戦闘時にJSで付与） */
+    .bodyPadCombat{
+      padding-bottom: 110px; /* 端末により調整OK */
+    }
+
+    /* Backdrop */
+    .sheetBackdrop{
+      position: fixed;
+      inset: 0;
+      background: rgba(0,0,0,.45);
+      z-index: 130;
+    }
+
+    /* Bottom sheet本体 */
+    .bottomSheet{
+      position: fixed;
+      left: 50%;
+      transform: translateX(-50%);
+      bottom: 0;
+      width: min(640px, 100%);
+      max-height: min(68vh, 540px);
+      z-index: 140;
+      background: rgba(18,26,51,.96);
+      border: 1px solid rgba(255,255,255,.10);
+      border-bottom: none;
+      border-radius: 20px 20px 0 0;
+      box-shadow: var(--shadow);
+      overflow: hidden;
+      padding-bottom: env(safe-area-inset-bottom);
+    }
+
+    .sheetHandle{
+      width: 54px;
+      height: 6px;
+      border-radius: 999px;
+      background: rgba(255,255,255,.18);
+      margin: 10px auto 6px;
+    }
+
+    .sheetHeader{
+      display:flex;
+      align-items:center;
+      justify-content:space-between;
+      gap: 10px;
+      padding: 10px 14px 12px;
+      border-bottom: 1px solid rgba(255,255,255,.08);
+    }
+
+    .sheetTitle{
+      font-weight: 900;
+      font-size: 14px;
+    }
+
+    .sheetClose{
+      padding: 10px 12px;
+      border-radius: 12px;
+      text-align: center;
+      font-size: 13px;
+      background: rgba(255,255,255,.06);
+      border: 1px solid rgba(255,255,255,.10);
+      color: var(--text);
+    }
+
+    .sheetChoices{
+      padding: 12px 14px 14px;
+      display: grid;
+      gap: 10px;
+      overflow: auto;
+      -webkit-overflow-scrolling: touch;
+    }
   </style>
 </head>
 <body>
@@ -394,6 +509,31 @@
         <button id="share">結果をコピー</button>
       </div>
     </section>
+
+    <!-- ▼ 戦闘アクションバー（固定） -->
+    <div id="actionBar" class="actionBar hidden" aria-hidden="true">
+      <div class="actionBarInner">
+        <button id="ab_attack" class="primary">⚔️</button>
+        <button id="ab_guard"  class="okbtn">🛡️</button>
+        <button id="ab_heal"   class="okbtn">💚</button>
+        <button id="ab_evade"  class="okbtn">🪽</button>
+        <button id="ab_potion" class="okbtn">🧪</button>
+        <button id="ab_more"   class="warnbtn">More</button>
+      </div>
+    </div>
+
+    <!-- ▼ Bottom Sheet -->
+    <div id="sheetBackdrop" class="sheetBackdrop hidden" aria-hidden="true"></div>
+
+    <div id="bottomSheet" class="bottomSheet hidden" aria-hidden="true">
+      <div class="sheetHandle" id="sheetHandle"></div>
+      <div class="sheetHeader">
+        <div class="sheetTitle">追加コマンド</div>
+        <button id="sheetClose" class="sheetClose">閉じる</button>
+      </div>
+      <div id="sheetChoices" class="sheetChoices"></div>
+    </div>
+    <!-- ▲ Bottom Sheet -->
   </main>
 </div>
 
@@ -1354,7 +1494,7 @@
     }
 
     // ✅ ここがポイント：プレイヤーの選択肢を出す
-    setChoices(makeCombatChoices());
+    renderCombatActions();
     setIdle(true);
   }
 
@@ -1547,6 +1687,8 @@
     if(S.mode === "pick"){
       setEnemyVisible(false);
     }
+    // 戦闘UIの表示切替（常に同期）
+    setCombatUIVisible(S.mode === "combat");
   }
 
   function log(html){ $("log").innerHTML = html; }
@@ -1560,6 +1702,56 @@
       b.disabled = !!c.disabled;
       b.addEventListener("click", c.onClick);
       wrap.appendChild(b);
+    });
+  }
+
+  // ===== Bottom Sheet UI =====
+  const actionBar = document.getElementById("actionBar");
+  const sheetBackdrop = document.getElementById("sheetBackdrop");
+  const bottomSheet = document.getElementById("bottomSheet");
+  const sheetChoices = document.getElementById("sheetChoices");
+
+  function openSheet(){
+    sheetBackdrop.classList.remove("hidden");
+    bottomSheet.classList.remove("hidden");
+    sheetBackdrop.setAttribute("aria-hidden","false");
+    bottomSheet.setAttribute("aria-hidden","false");
+  }
+
+  function closeSheet(){
+    sheetBackdrop.classList.add("hidden");
+    bottomSheet.classList.add("hidden");
+    sheetBackdrop.setAttribute("aria-hidden","true");
+    bottomSheet.setAttribute("aria-hidden","true");
+  }
+
+  sheetBackdrop.addEventListener("click", closeSheet);
+  document.getElementById("sheetClose").addEventListener("click", closeSheet);
+  document.getElementById("ab_more").addEventListener("click", openSheet);
+  document.getElementById("sheetHandle").addEventListener("click", closeSheet);
+
+  // actionBar表示切替
+  function setCombatUIVisible(on){
+    actionBar.classList.toggle("hidden", !on);
+    actionBar.setAttribute("aria-hidden", on ? "false" : "true");
+    document.body.classList.toggle("bodyPadCombat", on);
+
+    if(!on) closeSheet();
+  }
+
+  // sheet内ボタン描画
+  function renderSheetButtons(arr){
+    sheetChoices.innerHTML = "";
+    arr.forEach(c=>{
+      const b = document.createElement("button");
+      b.className = c.cls || "";
+      b.innerHTML = c.label;
+      b.disabled = !!c.disabled;
+      b.addEventListener("click", ()=>{
+        closeSheet();
+        c.onClick();
+      });
+      sheetChoices.appendChild(b);
     });
   }
 
@@ -2051,7 +2243,7 @@
     ui();
     const bossTxt = isBoss ? ` <span class="pill warn">BOSS</span>` : "";
     log(`<span class="pill neu">戦闘</span>${bossTxt}${S.enemy.name}が現れた！<br><small>敵の次の攻撃は <b>${$("eintent").textContent}</b></small>`);
-    setChoices(makeCombatChoices());
+    renderCombatActions();
     playBGM();
     setIdle(true);
     // 戦闘開始：選択キャラに応じて表示切替
@@ -2076,38 +2268,37 @@
       if(!S.potion){
         S.last = "❌ ポーションを持っていない";
         ui();
-        setChoices(makeCombatChoices());
+        renderCombatActions(); // ←戦闘UI更新
         return;
       }
-    
-      const res = usePotion();   // ← usePotion() の中で S.potion = null になって消費される
+
+      const res = usePotion();
       S.last = res.msg;
       ui();
-    
-      // ✅ ターン消費しない：敵ターンへ行かず、そのまま選択肢を出し直す
+
       log(`${S.last}<br><small>（ポーションはターンを消費しない）</small>`);
-      setChoices(makeCombatChoices());
+      renderCombatActions();
       setIdle(true);
     };
-    
+
     const doAttack = () => {
       L2D.onAction("attack");
       let dmg = r(atkMin, atkMax);
-      playAnim(playerWrap, "attack", 220);         // 踏み込み
-      playAnim(enemyWrap, "hurt", 260);            // 被弾フラッシュ
-      playAnim(enemyWrap, "knockback", 200);       // ノックバック
-      
+      playAnim(playerWrap, "attack", 220);
+      playAnim(enemyWrap, "hurt", 260);
+      playAnim(enemyWrap, "knockback", 200);
       playSE("attack");
-      // 「休憩：研ぐ」一時バフ（次の攻撃だけ+4）
+
       if(S.tempSharpen){
         dmg += 4;
         S.tempSharpen = false;
       }
-
       dmg = applyRelicsHook("onAtk", dmg);
       if(S.pStatus.weaken>0) dmg = Math.max(0, dmg - 2);
+
       S.enemy.hp = clamp(S.enemy.hp - dmg, 0, S.enemy.maxhp);
       spawnFloatText(enemyWrap, `-${dmg}`, "dmg", { big: dmg >= 12 });
+
       S.last = `あなたの攻撃！ 敵に <b>${dmg}</b> ダメージ。`;
       gainFocus(1);
       afterPlayerAction();
@@ -2133,8 +2324,7 @@
       S.hp = clamp(S.hp + h, 0, S.maxhp);
       spawnFloatText(playerWrap, `+${h}`, "heal");
       L2D_FX("heal");
-      // 回復の追加効果：次の被ダメを固定で-2（フロアで少し伸ばす）
-      S.healWard = 2 + Math.floor(S.floor / 3); // 例: 1-2F=2, 3-5F=3, 6-8F=4
+      S.healWard = 2 + Math.floor(S.floor / 3);
       gainFocus(1);
       S.last = `回復！ HPを <b>${h}</b> 回復。<br><small>加護：次の被ダメ -<b>${S.healWard}</b></small>`;
       afterPlayerAction();
@@ -2142,7 +2332,6 @@
 
     const doEvade = () => {
       L2D.onAction("dodge");
-      // 次の被ダメを60%軽減（強いので固定で60%くらいが扱いやすい）
       S.evadeRate = 0.60;
       gainFocus(2);
       S.last = `🪽 回避の構え！ 次の被ダメージを <b>60%</b> 軽減。`;
@@ -2154,14 +2343,10 @@
       const cost = 3;
       if(!spendFocus(cost)){
         S.last = `❌ 集中が足りない（必要${cost}）`;
-        ui();
-        setChoices(makeCombatChoices());
-        return;
+        ui(); renderCombatActions(); return;
       }
-    
-      // 通常攻撃より少し強い程度（強すぎるとヌルくなるので控えめ）
-      let dmg = r(atkMin, atkMax) + 5;
 
+      let dmg = r(atkMin, atkMax) + 5;
       playAnim(playerWrap, "attack", 220);
       playAnim(enemyWrap, "hurt", 260);
       playAnim(enemyWrap, "knockback", 200);
@@ -2171,54 +2356,42 @@
         dmg += 4;
         S.tempSharpen = false;
       }
-
       dmg = applyRelicsHook("onAtk", dmg);
       if(S.pStatus.weaken>0) dmg = Math.max(0, dmg - 2);
 
-      // 小さな追加効果：次の敵攻撃 -2（“攻めたら少し楽になる”）
       S.enemyWeaken = Math.max(S.enemyWeaken, 2);
 
       S.enemy.hp = clamp(S.enemy.hp - dmg, 0, S.enemy.maxhp);
       spawnFloatText(enemyWrap, `-${dmg}`, "dmg", { big: dmg >= 12 });
+
       S.last = `💥 強攻撃！ 敵に <b>${dmg}</b> ダメージ。<br><small>圧力：次の敵攻撃 -<b>${S.enemyWeaken}</b></small>`;
       afterPlayerAction();
     };
 
     const doBreak = () => {
       const cost = 2;
-
-      // 「溜め」中にだけ使える：強攻撃キャンセル用
       if(S.enemyIntentType !== "charge"){
         S.last = `❌ ブレイクは「溜め」中にしか使えない`;
-        ui();
-        setChoices(makeCombatChoices());
-        return;
+        ui(); renderCombatActions(); return;
       }
       if(S.breakCD > 0){
         S.last = `❌ ブレイクはクールダウン中（残り${S.breakCD}）`;
-        ui();
-        setChoices(makeCombatChoices());
-        return;
+        ui(); renderCombatActions(); return;
       }
       if(!spendFocus(cost)){
         S.last = `❌ 集中が足りない（必要${cost}）`;
-        ui();
-        setChoices(makeCombatChoices());
-        return;
+        ui(); renderCombatActions(); return;
       }
 
-      // 溜めを中断：強攻撃予定を消す
       S.enemy._charged = false;
       S.enemy._heavyValue = 0;
       S.enemyIntentType = "normal";
       S.enemyNextHeavy = 0;
 
-      // ひるみ：このターンの敵行動をスキップ（ただしCD＋コストで無限不可）
       S.breakStun = 1;
       S.breakCD = 3;
       S.justUsedBreak = true;
 
-      // 溜めキャンセル後の「次の攻撃」をここで1回だけ決める（表示用）
       rollEnemyIntent({ forceNormal: true });
       ui();
 
@@ -2230,86 +2403,77 @@
       const cost = 2;
       if(!spendFocus(cost)){
         S.last = `❌ 集中が足りない（必要${cost}）`;
-        ui(); setChoices(makeCombatChoices()); return;
+        ui(); renderCombatActions(); return;
       }
-    
-      // 通常攻撃より少し控えめ
-      let dmg = r(atkMin, atkMax) - 1;
-      dmg = Math.max(0, dmg);
-    
-      // 敵が「脆弱」なら被ダメ増
+
+      let dmg = Math.max(0, r(atkMin, atkMax) - 1);
       if(S.eStatus.vulnerable > 0) dmg = Math.ceil(dmg * 1.25);
-    
+
       playAnim(playerWrap, "attack", 220);
       playAnim(enemyWrap, "hurt", 260);
       playAnim(enemyWrap, "knockback", 200);
       playSE("attack");
-    
+
       dmg = applyRelicsHook("onAtk", dmg);
       if(S.pStatus.weaken>0) dmg = Math.max(0, dmg - 2);
-    
+
       S.enemy.hp = clamp(S.enemy.hp - dmg, 0, S.enemy.maxhp);
       spawnFloatText(enemyWrap, `-${dmg}`, "dmg", { big: dmg >= 12 });
-      
-      // ✅ ここが状態異常付与：敵に毒
+
       addStatus("enemy", "poison", 3, 2 + Math.floor(S.floor/3));
-    
+
       S.last = `☠️ 毒刃！ 敵に <b>${dmg}</b> ダメージ + 毒付与`;
       gainFocus(1);
       afterPlayerAction();
     };
-    
+
     const doBurnFlask = () => {
       const cost = 2;
       if(!spendFocus(cost)){
         S.last = `❌ 集中が足りない（必要${cost}）`;
-        ui(); setChoices(makeCombatChoices()); return;
+        ui(); renderCombatActions(); return;
       }
-    
-      let dmg = r(2, 4) + Math.floor(S.floor/3); // 小ダメ
+
+      let dmg = r(2, 4) + Math.floor(S.floor/3);
       if(S.eStatus.vulnerable > 0) dmg = Math.ceil(dmg * 1.25);
-    
+
       playAnim(playerWrap, "attack", 220);
       playAnim(enemyWrap, "hurt", 260);
       playAnim(enemyWrap, "knockback", 200);
       playSE("attack");
-    
+
       dmg = applyRelicsHook("onAtk", dmg);
       if(S.pStatus.weaken>0) dmg = Math.max(0, dmg - 2);
-    
+
       S.enemy.hp = clamp(S.enemy.hp - dmg, 0, S.enemy.maxhp);
       spawnFloatText(enemyWrap, `-${dmg}`, "dmg", { big: dmg >= 12 });
-    
-      // ✅ 敵に火傷
+
       addStatus("enemy", "burn", 2, 2 + Math.floor(S.floor/4));
-    
+
       S.last = `🔥 火炎瓶！ 敵に <b>${dmg}</b> ダメージ + 火傷付与`;
       gainFocus(1);
       afterPlayerAction();
     };
-    
+
     const doCleanse = () => {
       L2D.onAction("cleanse");
       const cost = 2;
       if(!spendFocus(cost)){
         S.last = `❌ 集中が足りない（必要${cost}）`;
-        ui(); setChoices(makeCombatChoices()); return;
+        ui(); renderCombatActions(); return;
       }
-    
-      // ✅ 自分の状態異常を解除（好きに対象を増減OK）
+
       S.pStatus.poison = 0; S.pStatus.poisonDmg = 0;
       S.pStatus.burn = 0;   S.pStatus.burnDmg = 0;
       S.pStatus.weaken = 0;
       S.pStatus.vulnerable = 0;
-      // ※スタンは「動けない」なので基本は解除できない設計が自然。解除したいならここも 0 に。
-    
-      // ついでに小回復 or 加護を付けるのもアリ
+
       S.healWard = Math.max(S.healWard, 2);
-    
+
       S.last = `✨ 浄化！ 状態異常を解除した。<br><small>加護：次の被ダメ -<b>${S.healWard}</b></small>`;
       afterPlayerAction();
     };
-    
+
     const baseP = 0.55;
     const p = applyRelicsHook("onGambleChance", baseP);
 
@@ -2325,39 +2489,96 @@
       afterPlayerAction();
     };
 
-    const list = [
-      { label:`⚔️ 攻撃 <span class="muted">(${atkMin}〜${atkMax})</span>`, cls:"primary", onClick: doAttack },
-      { label:`🛡️ 防御 <span class="muted">(軽減 5〜${8+S.floor}+効果 / 集中+2)</span>`, cls:"okbtn", onClick: doGuard },
-      { label:`💚 回復 <span class="muted">(4〜7+効果 / 集中+1)</span>`, cls:"okbtn", onClick: doHeal },
-      { label:`🪽 回避 <span class="muted">(次の被ダメ-60% / 集中+2)</span>`, cls:"okbtn", onClick: doEvade },
-      { label:`💥 強攻撃 <span class="muted">(集中-3 / +5ダメ+圧力)</span>`, cls:"primary", onClick: doStrongAttack,
+    // ---- アクション定義（keyを付ける） ----
+    const actions = [
+      { key:"attack", label:`⚔️ 攻撃 <span class="muted">(${atkMin}〜${atkMax})</span>`, cls:"primary", onClick: doAttack },
+      { key:"guard",  label:`🛡️ 防御 <span class="muted">(軽減 5〜${8+S.floor}+効果 / 集中+2)</span>`, cls:"okbtn", onClick: doGuard },
+      { key:"heal",   label:`💚 回復 <span class="muted">(4〜7+効果 / 集中+1)</span>`, cls:"okbtn", onClick: doHeal },
+      { key:"evade",  label:`🪽 回避 <span class="muted">(次の被ダメ-60% / 集中+2)</span>`, cls:"okbtn", onClick: doEvade },
+
+      { key:"strong", label:`💥 強攻撃 <span class="muted">(集中-3 / +5ダメ+圧力)</span>`, cls:"primary", onClick: doStrongAttack,
         disabled: S.focus < 3
       },
-      { label:`🧱 ブレイク <span class="muted">(溜め中のみ / 集中-2 / CD3)</span>`, cls:"warnbtn", onClick: doBreak,
+      { key:"break",  label:`🧱 ブレイク <span class="muted">(溜め中のみ / 集中-2 / CD3)</span>`, cls:"warnbtn", onClick: doBreak,
         disabled: (S.focus < 2) || (S.breakCD > 0) || (S.enemyIntentType !== "charge")
       },
-      { label:`☠️ 毒刃 <span class="muted">(集中-2 / 毒付与)</span>`, cls:"primary", onClick: doPoisonStrike,
+      { key:"poison", label:`☠️ 毒刃 <span class="muted">(集中-2 / 毒付与)</span>`, cls:"primary", onClick: doPoisonStrike,
         disabled: S.focus < 2
       },
-      { label:`🔥 火炎瓶 <span class="muted">(集中-2 / 火傷付与)</span>`, cls:"primary", onClick: doBurnFlask,
+      { key:"burn",   label:`🔥 火炎瓶 <span class="muted">(集中-2 / 火傷付与)</span>`, cls:"primary", onClick: doBurnFlask,
         disabled: S.focus < 2
       },
-      { label:`✨ 浄化 <span class="muted">(集中-2 / 状態異常解除)</span>`, cls:"okbtn", onClick: doCleanse,
+      { key:"cleanse",label:`✨ 浄化 <span class="muted">(集中-2 / 状態異常解除)</span>`, cls:"okbtn", onClick: doCleanse,
         disabled: S.focus < 2
       },
-      {
-        label: `🧪 ポーション使用 <span class="muted">(${S.potion ? S.potion.name : "なし"})</span>`,
-        cls: "okbtn",
-        onClick: doPotion,
-        disabled: !S.potion
+      { key:"potion", label:`🧪 ポーション使用 <span class="muted">(${S.potion ? S.potion.name : "なし"})</span>`, cls:"okbtn",
+        onClick: doPotion, disabled: !S.potion
       },
     ];
 
+    // 賭けはMore側に“追加”で入れる（確率）
     if(chance(0.35)){
-      const idx = r(0,2);
-      list[idx] = { label:`🎲 賭け <span class="muted">(成功${Math.round(p*100)}% / 失敗で自傷)</span>`, cls:"badbtn", onClick: doGamble };
+      actions.push({ key:"gamble", label:`🎲 賭け <span class="muted">(成功${Math.round(p*100)}% / 失敗で自傷)</span>`, cls:"badbtn", onClick: doGamble });
     }
-    return list;
+
+    // ---- 基本バー / Moreに分割 ----
+    const baseKeys = new Set(["attack","guard","heal","evade","potion"]);
+    const base = actions.filter(a => baseKeys.has(a.key));
+    const more = actions.filter(a => !baseKeys.has(a.key));
+
+    return { base, more };
+  }
+
+  function renderCombatActions(){
+    // 戦闘でないなら、通常choicesを使う
+    const isCombat = (S.mode === "combat");
+    setCombatUIVisible(isCombat);
+
+    if(!isCombat){
+      // 非戦闘は従来どおり
+      return;
+    }
+
+    const { base, more } = makeCombatChoices();
+
+    // 既存の縦choicesは戦闘中は空にする（残ってても邪魔なので）
+    document.getElementById("choices").innerHTML = "";
+
+    // actionBarの5ボタンを更新（disabled含む）
+    const map = Object.fromEntries(base.map(a=>[a.key, a]));
+
+    const btnAttack = document.getElementById("ab_attack");
+    const btnGuard  = document.getElementById("ab_guard");
+    const btnHeal   = document.getElementById("ab_heal");
+    const btnEvade  = document.getElementById("ab_evade");
+    const btnPotion = document.getElementById("ab_potion");
+
+    // 既存リスナーを毎回張り直し（簡単安全）
+    const resetBtn = (btn, act, fallbackText) => {
+      const clone = btn.cloneNode(true);
+      btn.parentNode.replaceChild(clone, btn);
+
+      clone.disabled = act ? !!act.disabled : true;
+      if(act && act.label){
+        // アイコンだけにしたいので labelの先頭絵文字を使う（fallbackは保険）
+        clone.textContent = (act.key==="potion") ? "🧪" :
+                            (act.key==="attack") ? "⚔️" :
+                            (act.key==="guard") ? "🛡️" :
+                            (act.key==="heal") ? "💚" : "🪽";
+        clone.addEventListener("click", act.onClick);
+      }else{
+        clone.textContent = fallbackText;
+      }
+    };
+
+    resetBtn(btnAttack, map.attack, "⚔️");
+    resetBtn(btnGuard,  map.guard,  "🛡️");
+    resetBtn(btnHeal,   map.heal,   "💚");
+    resetBtn(btnEvade,  map.evade,  "🪽");
+    resetBtn(btnPotion, map.potion, "🧪");
+
+    // sheetにMoreを描画
+    renderSheetButtons(more);
   }
 
   function afterPlayerAction(){
