@@ -301,6 +301,12 @@
     /* @media (max-width: 560px){
       #live2dWrap{ width: 260px; height: 420px; }
     } */
+
+    /* トグルボタン用終わったら削除 */
+    .l2dToggleOn{
+      background: rgba(255,211,109,.18);
+      border-color: rgba(255,211,109,.35);
+    }
     
   </style>
 </head>
@@ -366,6 +372,7 @@
           スライダーで Param を動かして「何が動くか」確認できます。
         </div>
         <div id="l2dSliders" class="choices"></div>
+        <div id="l2dToggles" class="choices"></div>
       </div>
     </section>
 
@@ -412,7 +419,7 @@
   // --- ダメージ演出用 ---
   const floatLayer = $("floatLayer");
 
-    // ===== Live2D Controller =====
+  // ===== Live2D Controller =====
   // ※ model3.json は「Motions/Expressionsを追記した版」を指す
   const L2D = (() => {
     const MODEL_PATH = "./assets/live2d/ulvm2_0001/ulvm2_0001.model3.json"; // Live2Dモデルのパス（model3.json）
@@ -690,6 +697,88 @@
         const paramIds = getParamIdsSafe(model);
         console.log("[L2D] paramIds:", paramIds);
 
+        // JS：Live2DのParamトグルUIを生成(終わったら削除)
+        function getParamRange(cm, id){
+          // 既存互換（cmにById系が無い想定）
+          const idx = (typeof cm.getParameterIndex === "function")
+            ? cm.getParameterIndex(id)
+            : (cm._parameterIds ? Array.from(cm._parameterIds).indexOf(id) : -1);
+
+          const min = cm._parameterMinimumValues ? cm._parameterMinimumValues[idx] : 0;
+          const max = cm._parameterMaximumValues ? cm._parameterMaximumValues[idx] : 1;
+          const def = cm._parameterDefaultValues ? cm._parameterDefaultValues[idx] : 0;
+          return {min, max, def, idx};
+        }
+
+        function setParam(id, v){
+          const cm = model.internalModel.coreModel;
+          cm.setParameterValueById(id, v);
+          cm.update();
+        }
+
+        function getParamValue(id){
+          const cm = model.internalModel.coreModel;
+          const idx = cm.getParameterIndex(id);
+          // 値取得が無い環境があるので保険
+          if(typeof cm.getParameterValueByIndex === "function") return cm.getParameterValueByIndex(idx);
+          if(cm._parameterValues) return cm._parameterValues[idx];
+          return 0;
+        }
+
+        function toggleParam(id){
+          const cur = getParamValue(id);
+          const next = (cur > 0.5) ? 0 : 1;
+          setParam(id, next);
+          return next;
+        }
+
+        function buildEffectToggleUI(){
+          const host = document.getElementById("l2dToggles");
+          if(!host) return;
+          host.innerHTML = "";
+
+          const cm = model.internalModel.coreModel;
+          const ids = getParamIdsSafe(model) || [];
+
+          // e_ / e2_ で始まる “0/1のON/OFF” を抽出
+          const bin = ids
+            .filter(id => id.startsWith("e_") || id.startsWith("e2_"))
+            .filter(id => {
+              const {min,max} = getParamRange(cm,id);
+              return Math.abs(min-0) < 1e-6 && Math.abs(max-1) < 1e-6;
+            });
+
+          // まず全部OFFボタン
+          const allOff = document.createElement("button");
+          allOff.className = "warnbtn";
+          allOff.textContent = "🧹 エフェクト全部OFF";
+          allOff.addEventListener("click", ()=>{
+            bin.forEach(id => setParam(id, 0));
+            // 見た目更新
+            [...host.querySelectorAll("button[data-param]")].forEach(b=>b.classList.remove("l2dToggleOn"));
+          });
+          host.appendChild(allOff);
+
+          // 各Paramトグルボタン
+          bin.forEach(id=>{
+            const b = document.createElement("button");
+            b.className = "okbtn";
+            b.textContent = id;              // 後で「💗ハート」などに置き換え可
+            b.dataset.param = id;
+
+            // 初期状態反映
+            if(getParamValue(id) > 0.5) b.classList.add("l2dToggleOn");
+
+            b.addEventListener("click", ()=>{
+              const v = toggleParam(id);
+              b.classList.toggle("l2dToggleOn", v > 0.5);
+            });
+            host.appendChild(b);
+          });
+
+          console.log("[L2D] binary effect params =", bin);
+        }
+
         model.anchor.set(0.5, 1.0);
         app.stage.addChild(model);
 
@@ -721,6 +810,8 @@
 
         // 初期モーション
         expression("smile");
+        buildEffectToggleUI();
+        showDebugUI(true); // UIを出したい時だけ
       }catch(e){
         console.warn("[L2D] init failed:", e);
       }
