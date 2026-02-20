@@ -451,11 +451,24 @@
 
         function getParamInfo(id){
           const cm = model.internalModel.coreModel;
+          // パターンA: 関数がある場合
+          if (typeof cm.getParameterMinimumValueById === "function") {
+            return {
+              id,
+              min: cm.getParameterMinimumValueById(id),
+              max: cm.getParameterMaximumValueById(id),
+              def: cm.getParameterDefaultValueById(id),
+            };
+          }
+          // パターンB: 内部配列から取得
+          const idx = (typeof cm.getParameterIndex === "function")
+            ? cm.getParameterIndex(id)
+            : (cm._parameterIds ? Array.from(cm._parameterIds).indexOf(id) : -1);
           return {
             id,
-            min: cm.getParameterMinimumValueById(id),
-            max: cm.getParameterMaximumValueById(id),
-            def: cm.getParameterDefaultValueById(id),
+            min: cm._parameterMinimumValues ? cm._parameterMinimumValues[idx] : 0,
+            max: cm._parameterMaximumValues ? cm._parameterMaximumValues[idx] : 1,
+            def: cm._parameterDefaultValues ? cm._parameterDefaultValues[idx] : 0,
           };
         }
 
