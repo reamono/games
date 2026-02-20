@@ -442,18 +442,42 @@
         }
         const { Live2DModel } = live2dNS; // ← 取り出し
         model = await Live2DModel.from(MODEL_PATH);
-        // console.log("[L2D] motionGroups:", model.internalModel.settings.motions);
-        // console.log("[L2D] expressions:", model.internalModel.settings.expressions);
-        // console.log("[L2D] model loaded:", model);
-
-        // ★ パラメータID一覧を出す
+        // ★ パラメータID一覧を安全に出す（落ちない）
         const cm = model.internalModel.coreModel;
-        const n = cm.getParameterCount();
-        const ids = [];
-        for (let i = 0; i < n; i++) {
-          ids.push(cm.getParameterId(i));
+        console.log("[L2D] coreModel keys:", Object.keys(cm));
+        console.log("[L2D] coreModel proto:", Object.getOwnPropertyNames(Object.getPrototypeOf(cm)));
+        console.log("[L2D] coreModel:", cm);
+        console.log("[L2D] raw model:", cm?._model);
+
+        function toStr(x){
+          if (typeof x === "string") return x;
+          if (x?.getString) return x.getString();
+          if (x?.toString) return x.toString();
+          return String(x);
         }
-        console.log("[L2D] paramIds:", ids);
+
+        function getParamIdsSafe(model){
+          const cm = model.internalModel.coreModel;
+
+          // パターンA: getParameterIds() がある
+          if (typeof cm.getParameterIds === "function") {
+            return cm.getParameterIds().map(toStr);
+          }
+
+          // パターンB: 内部に ids がある
+          const ids =
+            cm?._model?.parameters?.ids ||
+            cm?._model?.parameters?.id ||
+            cm?._parameterIds ||
+            cm?._parameterId;
+
+          if (ids) return Array.from(ids).map(toStr);
+
+          return null;
+        }
+
+        const paramIds = getParamIdsSafe(model);
+        console.log("[L2D] paramIds:", paramIds);
 
         model.anchor.set(0.5, 1.0);
         app.stage.addChild(model);
