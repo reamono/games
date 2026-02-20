@@ -449,6 +449,55 @@
         console.log("[L2D] coreModel:", cm);
         console.log("[L2D] raw model:", cm?._model);
 
+        function getParamInfo(id){
+          const cm = model.internalModel.coreModel;
+          return {
+            id,
+            min: cm.getParameterMinimumValueById(id),
+            max: cm.getParameterMaximumValueById(id),
+            def: cm.getParameterDefaultValueById(id),
+          };
+        }
+
+        // 影響が大きいParamをざっくり炙り出す（上位だけ表示）
+        async function probeParams(topN = 12){
+          const cm = model.internalModel.coreModel;
+          const ids = getParamIdsSafe(model) || [];
+          const base = model.getBounds();
+
+          const scores = [];
+
+          for (const id of ids){
+            const { min, max, def } = getParamInfo(id);
+
+            // 端に振ってみる
+            cm.setParameterValueById(id, max);
+            model.update(app.ticker.deltaMS); // 反映
+            const b1 = model.getBounds();
+
+            cm.setParameterValueById(id, min);
+            model.update(app.ticker.deltaMS);
+            const b2 = model.getBounds();
+
+            // 元に戻す
+            cm.setParameterValueById(id, def);
+            model.update(app.ticker.deltaMS);
+
+            // 変化量（ざっくり）
+            const s =
+              Math.abs((b1.width*b1.height) - (base.width*base.height)) +
+              Math.abs((b2.width*b2.height) - (base.width*base.height));
+
+            scores.push({ id, s, min, max, def });
+          }
+
+          scores.sort((a,b)=>b.s-a.s);
+          console.table(scores.slice(0, topN));
+        }
+
+        // デバッグ実行（必要な時だけ）
+        // probeParams(15);
+
         function toStr(x){
           if (typeof x === "string") return x;
           if (x?.getString) return x.getString();
