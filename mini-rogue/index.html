@@ -70,7 +70,7 @@
     .stage{
       margin-top:12px;
       position:relative;
-      height:230px;
+      height: clamp(260px, 42vh, 420px); /* ←ここがポイント */
       border-radius:16px;
       overflow:hidden;
       border:1px solid rgba(255,255,255,.08);
@@ -834,7 +834,7 @@
       const b = model.getBounds();
 
       // 高さフィット（iPadで足が切れやすいので0.90〜0.95推奨）
-      const targetH = h * 0.92;
+      const targetH = h * 0.95;
       const s = targetH / (b.height || 1);
       model.scale.set(s);
 
@@ -929,7 +929,37 @@
       }
     }
 
-    return { init, resize, fit, onAction, motion, expression, pulseParam, holdParam, firePreset };
+    function resetState(){
+      if(!model) return;
+
+      // hold/pulse のタイマー全部止める
+      _timers.forEach(t => clearTimeout(t));
+      _timers.clear();
+
+      // 表情/エフェクト系を全部OFF（あなたの環境に合わせて）
+      const cm = model.internalModel.coreModel;
+      [
+        "e2_Param517","e2_Param3","e2_Param4","e2_ParamCheek","e2_Param10"
+      ].forEach(id => cm.setParameterValueById(id, 0));
+
+      // 可能なら “e_ / e2_” をまとめて0にする（存在しないIDでも落ちないならOK）
+      // ※重いならこの部分は省略可
+      try{
+        const ids = (typeof cm.getParameterIds === "function")
+          ? cm.getParameterIds().map(x => (x.getString?x.getString():String(x)))
+          : [];
+        ids.filter(id => id.startsWith("e_") || id.startsWith("e2_"))
+          .forEach(id => cm.setParameterValueById(id, 0));
+      }catch(e){}
+
+      cm.update();
+
+      // 表情を初期に戻す
+      try{ model.expression("smile"); }catch(e){}
+      try{ model.motion("Idle", 0); }catch(e){}
+    }
+
+    return { init, resize, fit, onAction, motion, expression, pulseParam, holdParam, firePreset, resetState };
   })();
   
   function spawnFloatText(targetEl, text, kind="dmg", opts={}){
@@ -1124,6 +1154,13 @@
       // Live2Dが未初期化なら初期化
       if(!window.__L2D_READY){
         await L2D.init();
+        if(!window.__L2D_READY){
+          await L2D.init();
+          window.__L2D_READY = true;
+        }
+
+        // ✅ ここで毎回初期表情に戻す
+        L2D.resetState();
         window.__L2D_READY = true;
       }
 
@@ -3041,6 +3078,13 @@
     S.bossPicked = {};
     $("pickCard").style.display = "none";
     $("mainCard").style.display = "block";
+    // ✅ Live2Dは一旦隠す（キャラ選択前なので）
+    const w = document.getElementById("live2dWrap");
+    if(w) w.classList.add("hidden");
+    const img = document.getElementById("playerImg");
+    if(img) img.style.visibility = "visible";
+    // （任意）負け表情リセットもここで呼ぶと確実
+    if(window.__L2D_READY) L2D.resetState?.();
     ui();
     showPlayerPick();
   }
