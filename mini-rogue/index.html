@@ -518,7 +518,7 @@
         model = await Live2DModel.from(MODEL_PATH);
 
         // ✅ デバッグUIを表示してスライダーを作る（必要なParamだけ）
-        showDebugUI(true);
+        showDebugUI(false);
         document.getElementById("l2dSliders").innerHTML = "";
 
         // まずは調べたい候補だけ
