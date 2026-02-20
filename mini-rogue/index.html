@@ -415,7 +415,7 @@
     // ===== Live2D Controller =====
   // ※ model3.json は「Motions/Expressionsを追記した版」を指す
   const L2D = (() => {
-    const MODEL_PATH = "./assets/live2d/huohuo/huohuo.model3.json"; // ←あなたの配置に合わせて変更
+    const MODEL_PATH = "./assets/live2d/ulvm2_0001/ulvm2_0001.model3.json"; // Live2Dモデルのパス（model3.json）
     let app = null;
     let fitFn = null;
     let model = null;
@@ -699,7 +699,7 @@
         });
 
         // 初期モーション
-        motion("Idle", 0);
+        expression("smile");
       }catch(e){
         console.warn("[L2D] init failed:", e);
       }
@@ -772,21 +772,13 @@
     // 行動タイプ → モーション/表情（好みで調整）
     function onAction(type){
       switch(type){
-        case "attack": motion("Attack", 0); break;
-        case "strong": motion("Attack", 0); expression("angry"); break;
-        case "guard":  motion("Skill", 0); break;
-        case "dodge":  motion("Skill", 0); break;
-        case "heal":   motion("Skill", 0); expression("baozhen"); break;
-        case "cleanse":motion("Skill", 0); expression("white_eyes"); break;
-        case "hit":    motion("Damage", 0); break;
-        case "win":    motion("Win", 0); break;
-        case "lose":   motion("Lose", 0); break;
-        default:       motion("Idle", 0); break;
-      }
-
-      // モーション後にIdleへ戻す（短め）
-      if(["attack","strong","guard","dodge","heal","cleanse","hit"].includes(type)){
-        setTimeout(()=> motion("Idle", 0), 900);
+        case "attack": expression("smile"); break;
+        case "strong": expression("angry"); break;
+        case "heal":   expression("blush"); break;
+        case "hit":    expression("cry"); break;
+        case "win":    expression("XD"); break;
+        case "lose":   expression("pale"); break;
+        default:       expression("smile"); break;
       }
     }
 
