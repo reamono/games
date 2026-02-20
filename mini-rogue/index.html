@@ -517,6 +517,25 @@
         const { Live2DModel } = live2dNS; // ← 取り出し
         model = await Live2DModel.from(MODEL_PATH);
 
+        // ===== list expressions / motions =====
+        try {
+          const s = model.internalModel.settings;
+
+          // Expressions
+          const exps = (s.expressions || []).map(e => e.name);
+          console.log("[L2D] expressions:", exps);
+
+          // Motions (group -> names)
+          const motions = s.motions || {};
+          const motionGroups = Object.keys(motions);
+          console.log("[L2D] motion groups:", motionGroups);
+          motionGroups.forEach(g=>{
+            console.log(`[L2D] motions[${g}] =`, (motions[g]||[]).map(m=>m.file));
+          });
+        } catch(e){
+          console.warn("settings dump failed", e);
+        }
+
         // ✅ デバッグUIを表示してスライダーを作る（必要なParamだけ）
         showDebugUI(false);
         document.getElementById("l2dSliders").innerHTML = "";
