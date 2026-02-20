@@ -811,7 +811,7 @@
         // 初期モーション
         expression("smile");
         buildEffectToggleUI();
-        showDebugUI(true); // UIを出したい時だけ
+        showDebugUI(false); // UIを出したい時だけ
       }catch(e){
         console.warn("[L2D] init failed:", e);
       }
@@ -871,6 +871,41 @@
       }
     }
 
+    // ===== param helpers(「paramを一瞬」「paramを一定時間」の2つを追加) =====
+    const _timers = new Map(); // id -> timeout
+
+    function setParam(id, v){
+      if(!model) return;
+      const cm = model.internalModel.coreModel;
+      cm.setParameterValueById(id, v);
+      cm.update();
+    }
+
+    // 一瞬だけ出す（主にエフェクト用）
+    function pulseParam(id, onValue=1, ms=450){
+      if(!model) return;
+      clearTimeout(_timers.get(id));
+      setParam(id, onValue);
+      _timers.set(id, setTimeout(()=>{ setParam(id, 0); }, ms));
+    }
+
+    // 一定時間その表情を保つ（表情用）
+    function holdParam(id, value=1, ms=1200){
+      if(!model) return;
+      clearTimeout(_timers.get(id));
+      setParam(id, value);
+      _timers.set(id, setTimeout(()=>{ setParam(id, 0); }, ms));
+    }
+
+    // 複数まとめて（表情＋エフェクト）
+    function firePreset({ face=[], fx=[] }){
+      const FACE_PARAMS = ["e2_Param517","e2_Param3","e2_Param4","e2_ParamCheek","e2_Param10"];
+      FACE_PARAMS.forEach(id => setParam(id, 0));
+      // face: [{id, v, ms}] / fx: [{id, v, ms}]
+      face.forEach(p => holdParam(p.id, p.v ?? 1, p.ms ?? 1200));
+      fx.forEach(p => pulseParam(p.id, p.v ?? 1, p.ms ?? 450));
+    }
+
     function expression(name){
       if(!model) return;
       try{
@@ -894,7 +929,7 @@
       }
     }
 
-    return { init, resize, fit, onAction, motion, expression };
+    return { init, resize, fit, onAction, motion, expression, pulseParam, holdParam, firePreset };
   })();
   
   function spawnFloatText(targetEl, text, kind="dmg", opts={}){
@@ -919,7 +954,64 @@
     floatLayer.appendChild(el);
     el.addEventListener("animationend", ()=> el.remove());
   }
-  
+
+  // 2Dモデルプリセット表
+  const L2D_PRESETS = {
+    // ダメージ：放心 + 汗
+    hurt: {
+      face: [{ id:"e2_Param3", ms: 1200 }],
+      fx:   [{ id:"e_Param59", ms: 650 }]
+    },
+
+    // レリック獲得：照れ + きらきら
+    relic: {
+      face: [{ id:"e2_ParamCheek", ms: 1600 }],
+      fx:   [{ id:"e_Param52", ms: 900 }]
+    },
+
+    // 回復：笑顔 + 音符
+    heal: {
+      face: [{ id:"e2_Param10", ms: 1200 }],
+      fx:   [{ id:"e_Param61", ms: 900 }]
+    },
+
+    // ボス遭遇：ジト目 + びっくり
+    boss: {
+      face: [{ id:"e2_Param4", ms: 1300 }],
+      fx:   [{ id:"e_Param58", ms: 700 }]
+    },
+
+    // 失敗/嫌なイベント：暗い + とほほ or もやもや
+    bad: {
+      face: [{ id:"e2_Param517", ms: 1800 }],
+      fx:   [{ id:"e_Param62", ms: 1100 }]
+    },
+
+    // 迷い：はてな
+    question: {
+      fx: [{ id:"e_Param56", ms: 900 }]
+    },
+
+    // ひらめき
+    idea: {
+      fx: [{ id:"e_Param54", ms: 900 }]
+    }
+  };
+
+  function L2D_FX(name){
+    // Live2Dキャラ以外なら何もしない
+    const p = PLAYERS.find(x => x.id === S.playerId);
+    if(!p || !p.live2d) return;
+
+    const pset = L2D_PRESETS[name];
+    if(!pset) return;
+
+    // init前なら何もしない（落ちない）
+    if(!window.__L2D_READY) return;
+
+    L2D.firePreset(pset);
+  }
+
   // ===== Audio =====
   const AUDIO = {
     enabled: false,
@@ -1160,6 +1252,7 @@
       let h = 10;
       h = applyRelicsHook("onHeal", h);
       S.hp = clamp(S.hp + h, 0, S.maxhp);
+      L2D_FX("heal");
       const msg = `🧪 回復ポーション！ HPを <b>${h}</b> 回復。`;
       S.potion = null;
       return { ok:true, msg };
@@ -1171,7 +1264,7 @@
       S.pStatus.burn   = 0; S.pStatus.burnDmg   = 0;
       S.pStatus.weaken = 0;
       S.pStatus.vulnerable = 0;
-   
+      L2D_FX("idea");
       const msg = `🧪 浄化ポーション！ 状態異常を解除した。<br><small>加護：次の被ダメ -<b>${S.healWard}</b></small>`;
       S.potion = null;
       return { ok:true, msg };
@@ -1931,6 +2024,7 @@
       document.getElementById("playerImg").style.visibility = "hidden";
       // 追加：2フレーム待ってから強制リサイズ（確実）
       requestAnimationFrame(() => requestAnimationFrame(() => L2D.resize()));
+      if(isBoss) L2D_FX("boss");
     }else{
       document.getElementById("live2dWrap").classList.add("hidden");
       document.getElementById("playerImg").style.visibility = "visible";
@@ -2001,6 +2095,7 @@
       h = applyRelicsHook("onHeal", h);
       S.hp = clamp(S.hp + h, 0, S.maxhp);
       spawnFloatText(playerWrap, `+${h}`, "heal");
+      L2D_FX("heal");
       // 回復の追加効果：次の被ダメを固定で-2（フロアで少し伸ばす）
       S.healWard = 2 + Math.floor(S.floor / 3); // 例: 1-2F=2, 3-5F=3, 6-8F=4
       gainFocus(1);
@@ -2460,6 +2555,9 @@
     S.block = 0;
     S.hp = clamp(S.hp - dmg, 0, S.maxhp);
 
+    // 被ダメのアニメーションやエフェクト
+    if(dmg > 0) L2D_FX("hurt");
+
     // ✅ ここを追加
     if(dmg > 0) spawnFloatText(playerWrap, `-${dmg}`, "dmg", { big: dmg >= 12 });
     else spawnFloatText(playerWrap, `BLOCK`, "block");
@@ -2541,6 +2639,7 @@
       onClick: ()=>{
         S.relics.push(rel.id);
         if(typeof rel.onPick === "function") rel.onPick(S);
+        L2D_FX("relic");
         ui();
         log(`<span class="pill warn">入手</span><b>${rel.name}</b> を手に入れた！<br><small>${rel.desc}</small>`);
         setChoices([{label:"進む", cls:"primary", onClick: onDone}]);
@@ -2589,6 +2688,7 @@
       onClick: ()=>{
         S.relics.push(rel.id);
         if(typeof rel.onPick === "function") rel.onPick(S);
+        L2D_FX("relic");
         ui();
         log(`<span class="pill warn">入手</span><b>${rel.name}</b> を手に入れた！<br><small>${rel.desc}</small>`);
         setChoices([{label:"進む", cls:"primary", onClick: proceedAfterNonCombat}]);
@@ -2611,6 +2711,7 @@
             h = applyRelicsHook("onHeal", h);
             S.hp = clamp(S.hp + h, 0, S.maxhp);
             S.last = `泉は癒やしだった！ HP+${h}`;
+            L2D_FX("heal"); 
             // 20%でポーション拾う（所持枠が空なら）
             if(!S.potion && Math.random() < 0.20){
               givePotion(Math.random() < 0.5 ? "heal" : "cleanse");
@@ -2620,6 +2721,7 @@
             const d = r(5, 9);
             S.hp = clamp(S.hp - d, 0, S.maxhp);
             S.last = `毒だった… HP-${d}`;
+            L2D_FX("bad");
           }
           ui();
           if(S.hp<=0) return defeatFromEvent();
@@ -2654,6 +2756,7 @@
           const cost = 12;
           if(S.gold < cost){
             log(`<span class="pill warn">不足</span>コインが足りない（必要${cost} / 所持${S.gold}）。`);
+            L2D_FX("question");
             setChoices([{label:"進む", cls:"primary", onClick: proceedAfterNonCombat}]);
             return;
           }
@@ -2676,6 +2779,7 @@
           const bet = 10;
           if(S.gold < bet){
             log(`<span class="pill warn">不足</span>コインが足りない（必要${bet}）。`);
+            L2D_FX("question");
             setChoices([{label:"進む", cls:"primary", onClick: proceedAfterNonCombat}]);
             return;
           }
@@ -2698,6 +2802,7 @@
           const cost = 8;
           if(S.gold < cost){
             log(`<span class="pill warn">不足</span>コインが足りない（必要${cost}）。`);
+            L2D_FX("question");
             setChoices([{label:"進む", cls:"primary", onClick: proceedAfterNonCombat}]);
             return;
           }
@@ -2739,6 +2844,7 @@
       { label:`🏃 走り抜ける <span class="muted">（成功で宝箱 / 失敗で大ダメ）</span>`, cls:"badbtn", onClick: ()=>{
         if(chance(0.45)){
           S.last = `成功！ 走り抜けた先に宝箱！`;
+          L2D_FX("idea");
           ui();
           log(`<span class="pill warn">成功</span>${S.last}`);
           setChoices([{label:"宝箱を開ける", cls:"warnbtn", onClick: screenTreasure}]);
