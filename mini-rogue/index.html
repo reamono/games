@@ -431,9 +431,22 @@
       if(!host || !model) return;
 
       const cm = model.internalModel.coreModel;
-      const min = cm.getParameterMinimumValueById(id);
-      const max = cm.getParameterMaximumValueById(id);
-      const def = cm.getParameterDefaultValueById(id);
+
+      // --- ここを修正 ---
+      let min, max, def;
+      if (typeof cm.getParameterMinimumValueById === "function") {
+        min = cm.getParameterMinimumValueById(id);
+        max = cm.getParameterMaximumValueById(id);
+        def = cm.getParameterDefaultValueById(id);
+      } else {
+        const idx = (typeof cm.getParameterIndex === "function")
+          ? cm.getParameterIndex(id)
+          : (cm._parameterIds ? Array.from(cm._parameterIds).indexOf(id) : -1);
+        min = cm._parameterMinimumValues ? cm._parameterMinimumValues[idx] : 0;
+        max = cm._parameterMaximumValues ? cm._parameterMaximumValues[idx] : 1;
+        def = cm._parameterDefaultValues ? cm._parameterDefaultValues[idx] : 0;
+      }
+      // ------------------
 
       const row = document.createElement("div");
       row.className = "card";
