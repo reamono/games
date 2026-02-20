@@ -442,9 +442,18 @@
         }
         const { Live2DModel } = live2dNS; // ← 取り出し
         model = await Live2DModel.from(MODEL_PATH);
-        console.log("[L2D] motionGroups:", model.internalModel.settings.motions);
-        console.log("[L2D] expressions:", model.internalModel.settings.expressions);
-        console.log("[L2D] model loaded:", model);
+        // console.log("[L2D] motionGroups:", model.internalModel.settings.motions);
+        // console.log("[L2D] expressions:", model.internalModel.settings.expressions);
+        // console.log("[L2D] model loaded:", model);
+
+        // ★ パラメータID一覧を出す
+        const cm = model.internalModel.coreModel;
+        const n = cm.getParameterCount();
+        const ids = [];
+        for (let i = 0; i < n; i++) {
+          ids.push(cm.getParameterId(i));
+        }
+        console.log("[L2D] paramIds:", ids);
 
         model.anchor.set(0.5, 1.0);
         app.stage.addChild(model);
