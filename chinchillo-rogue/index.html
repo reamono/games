@@ -1,0 +1,1034 @@
+<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <title>チンチロ・ダンジョン（試作）</title>
+  <style>
+    :root{
+      --bg:#0b1020; --panel:#121a33; --panel2:#0f1730;
+      --text:#e8ecff; --muted:#a8b0d6;
+      --accent:#66e3ff; --ok:#6dff9b; --bad:#ff6b8a; --warn:#ffd36d;
+      --shadow:0 14px 30px rgba(0,0,0,.38);
+      --r:18px;
+      --btnH:52px;
+    }
+    *{box-sizing:border-box; -webkit-tap-highlight-color:transparent;}
+    body{
+      margin:0; min-height:100vh;
+      background:radial-gradient(1200px 800px at 50% -100px, #1b2b66 0%, var(--bg) 55%);
+      color:var(--text);
+      font-family: system-ui, -apple-system, Segoe UI, Roboto, "Hiragino Kaku Gothic ProN", "Noto Sans JP", sans-serif;
+      display:flex; justify-content:center;
+      padding:16px 12px calc(16px + env(safe-area-inset-bottom));
+    }
+    .app{ width:min(520px, 100%); }
+    .topbar{
+      display:flex; align-items:center; justify-content:space-between;
+      gap:10px; padding:10px 12px;
+      background:rgba(18,26,51,.7); border:1px solid rgba(255,255,255,.08);
+      border-radius:var(--r); box-shadow:var(--shadow);
+      position:sticky; top:12px; z-index:5;
+      backdrop-filter: blur(10px);
+    }
+    .title{font-weight:800; letter-spacing:.02em;}
+    .stats{display:flex; gap:10px; flex-wrap:wrap; justify-content:flex-end; font-size:13px; color:var(--muted);}
+    .pill{
+      padding:6px 10px; border-radius:999px;
+      background:rgba(255,255,255,.06); border:1px solid rgba(255,255,255,.08);
+    }
+    .main{ margin-top:12px; }
+    .card{
+      background:rgba(18,26,51,.76);
+      border:1px solid rgba(255,255,255,.08);
+      border-radius:var(--r);
+      box-shadow:var(--shadow);
+      padding:14px;
+    }
+    .card + .card{ margin-top:12px; }
+    .h1{font-size:18px; font-weight:800; margin:0 0 8px;}
+    .muted{color:var(--muted);}
+    .row{display:flex; gap:10px; flex-wrap:wrap;}
+    .col{flex:1 1 160px;}
+    .btn{
+      height:var(--btnH);
+      display:flex; align-items:center; justify-content:center;
+      padding:0 14px; border-radius:14px;
+      border:1px solid rgba(255,255,255,.10);
+      background:rgba(255,255,255,.06);
+      color:var(--text); font-weight:750;
+      box-shadow: 0 10px 18px rgba(0,0,0,.22);
+      user-select:none; cursor:pointer;
+      transition: transform .06s ease;
+    }
+    .btn:active{transform: scale(.99);}
+    .btn.primary{ background: linear-gradient(180deg, rgba(102,227,255,.22), rgba(102,227,255,.08)); border-color: rgba(102,227,255,.35); }
+    .btn.ok{ background: linear-gradient(180deg, rgba(109,255,155,.22), rgba(109,255,155,.08)); border-color: rgba(109,255,155,.35); }
+    .btn.bad{ background: linear-gradient(180deg, rgba(255,107,138,.22), rgba(255,107,138,.08)); border-color: rgba(255,107,138,.35); }
+    .btn.warn{ background: linear-gradient(180deg, rgba(255,211,109,.22), rgba(255,211,109,.08)); border-color: rgba(255,211,109,.35); }
+    .btn[aria-disabled="true"]{opacity:.45; pointer-events:none;}
+    .divider{height:1px; background:rgba(255,255,255,.08); margin:10px 0;}
+    .diceRow{display:flex; gap:10px; justify-content:center; margin:10px 0 4px;}
+    .die{
+      width:64px; height:64px; border-radius:16px;
+      display:flex; align-items:center; justify-content:center;
+      background:rgba(255,255,255,.07);
+      border:1px solid rgba(255,255,255,.12);
+      font-size:28px; font-weight:900;
+      position:relative;
+    }
+    .die.small{ width:54px; height:54px; border-radius:14px; font-size:24px; }
+    .hint{font-size:12px; color:var(--muted);}
+    .log{
+      max-height:180px; overflow:auto; padding:10px;
+      border-radius:14px; background:rgba(0,0,0,.18);
+      border:1px solid rgba(255,255,255,.08);
+      font-size:13px; line-height:1.45;
+    }
+    .log p{margin:0 0 8px;}
+    .log p:last-child{margin:0;}
+    .chips{display:flex; gap:8px; flex-wrap:wrap;}
+    .chip{
+      padding:8px 10px; border-radius:999px;
+      background:rgba(255,255,255,.06);
+      border:1px solid rgba(255,255,255,.08);
+      font-size:12px; color:var(--muted);
+    }
+    /* Bottom action bar */
+    .bar{
+      position:fixed; left:0; right:0; bottom:0;
+      padding:10px 12px calc(10px + env(safe-area-inset-bottom));
+      background:rgba(10,14,30,.72);
+      backdrop-filter: blur(10px);
+      border-top:1px solid rgba(255,255,255,.08);
+      display:flex; justify-content:center;
+      z-index:20;
+    }
+    .barInner{
+      width:min(520px, 100%);
+      display:flex; gap:10px;
+    }
+    /* Modal (story / choices) */
+    .modal{
+      position:fixed; inset:0; background:rgba(0,0,0,.55);
+      display:none; align-items:flex-end; justify-content:center;
+      z-index:50;
+      padding:12px;
+      padding-bottom: calc(12px + env(safe-area-inset-bottom));
+    }
+    .modal.show{display:flex;}
+    .sheet{
+      width:min(520px, 100%);
+      background:rgba(18,26,51,.95);
+      border:1px solid rgba(255,255,255,.10);
+      border-radius: 22px;
+      box-shadow: 0 22px 60px rgba(0,0,0,.55);
+      padding:14px;
+    }
+    .sheetHead{display:flex; align-items:center; justify-content:space-between; gap:10px;}
+    .sheetTitle{font-weight:900; font-size:16px;}
+    .x{
+      width:40px; height:40px; border-radius:14px;
+      display:flex; align-items:center; justify-content:center;
+      background:rgba(255,255,255,.06); border:1px solid rgba(255,255,255,.10);
+      cursor:pointer; user-select:none;
+    }
+    input{
+      width:100%; height:52px; border-radius:14px;
+      border:1px solid rgba(255,255,255,.14);
+      background:rgba(0,0,0,.16);
+      color:var(--text);
+      padding:0 14px; font-size:16px;
+      outline:none;
+    }
+    .choice{
+      padding:12px; border-radius:16px;
+      border:1px solid rgba(255,255,255,.10);
+      background:rgba(255,255,255,.05);
+    }
+    .choiceTitle{font-weight:900;}
+    .choiceDesc{font-size:12px; color:var(--muted); margin-top:4px;}
+    .grid{display:grid; gap:10px;}
+    .grid3{grid-template-columns:1fr;}
+    @media (min-width:520px){
+      .grid3{grid-template-columns:1fr 1fr 1fr;}
+    }
+  </style>
+</head>
+<body>
+  <div class="app">
+    <div class="topbar">
+      <div class="title" id="topTitle">チンチロ・ダンジョン</div>
+      <div class="stats">
+        <div class="pill">Day <span id="day">-</span>/10</div>
+        <div class="pill">HP <span id="hp">-</span>/<span id="hpMax">-</span></div>
+        <div class="pill">🪙 <span id="coin">-</span></div>
+      </div>
+    </div>
+
+    <div class="main" id="main"></div>
+  </div>
+
+  <div class="bar" id="bar" style="display:none;">
+    <div class="barInner" id="barInner"></div>
+  </div>
+
+  <!-- Modal sheet -->
+  <div class="modal" id="modal">
+    <div class="sheet">
+      <div class="sheetHead">
+        <div class="sheetTitle" id="modalTitle">Title</div>
+        <div class="x" id="modalClose">✕</div>
+      </div>
+      <div class="divider"></div>
+      <div id="modalBody"></div>
+    </div>
+  </div>
+
+<script>
+(() => {
+  // ---------- Utilities ----------
+  const $ = (id) => document.getElementById(id);
+  const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
+  const randInt = (a,b)=> Math.floor(Math.random()*(b-a+1))+a;
+  const pickN = (arr, n) => {
+    const a = arr.slice();
+    for (let i=a.length-1; i>0; i--){
+      const j = Math.floor(Math.random()*(i+1));
+      [a[i],a[j]]=[a[j],a[i]];
+    }
+    return a.slice(0,n);
+  };
+
+  // ---------- Game Data ----------
+  const ROLE = {
+    PINZORO:'PINZORO',
+    SHIGORO:'SHIGORO',
+    ZORO:'ZORO',
+    NORMAL:'NORMAL',
+    HIFUMI:'HIFUMI',
+    NONE:'NONE',
+  };
+
+  // Relic hook model (simple but extensible):
+  // - onBattleStart(state)
+  // - onCalcPlayerDamage(ctx) -> modify ctx.damage/ctx.coins
+  // - onCalcEnemyDamage(ctx) -> modify ctx.damage
+  // - onAfterWin(state, ctx)
+  // - onAfterLose(state, ctx)
+  //
+  // Keep effects "実装しやすい" 方向。後で複雑なシナジーも追加可能。
+  const RELICS = [
+    { id:'r_add_reroll', name:'追加振り', price:32,
+      desc:'各戦闘でロール回数+1（最大4回）',
+      onBattleStart(s){ s.battle.maxRolls = Math.min(4, s.battle.maxRolls + 1); }
+    },
+    { id:'r_zoro_plus2', name:'ゾロ目増幅', price:28,
+      desc:'ゾロ目の与ダメ+2',
+      onCalcPlayerDamage(ctx){ if(ctx.role.type===ROLE.ZORO) ctx.damage += 2; }
+    },
+    { id:'r_high_zoro', name:'高目信仰', price:34,
+      desc:'ゾロ目が5以上なら追加で+3',
+      onCalcPlayerDamage(ctx){
+        if(ctx.role.type===ROLE.ZORO && ctx.role.value>=5) ctx.damage += 3;
+      }
+    },
+    { id:'r_normal_plus2', name:'キッカー強化', price:26,
+      desc:'通常目（2ペア+残り目）の与ダメ+2',
+      onCalcPlayerDamage(ctx){ if(ctx.role.type===ROLE.NORMAL) ctx.damage += 2; }
+    },
+    { id:'r_big_normal', name:'大きいほど良い', price:30,
+      desc:'通常目の残り目が5以上なら+2',
+      onCalcPlayerDamage(ctx){
+        if(ctx.role.type===ROLE.NORMAL && ctx.role.value>=5) ctx.damage += 2;
+      }
+    },
+    { id:'r_shigoro_plus4', name:'シゴロ強化', price:36,
+      desc:'シゴロの与ダメ+4',
+      onCalcPlayerDamage(ctx){ if(ctx.role.type===ROLE.SHIGORO) ctx.damage += 4; }
+    },
+    { id:'r_shigoro_coin', name:'順子ボーナス', price:40,
+      desc:'シゴロ成立で追加コイン+8（その攻撃）',
+      onCalcPlayerDamage(ctx){ if(ctx.role.type===ROLE.SHIGORO) ctx.coins += 8; }
+    },
+    { id:'r_pin_plus8', name:'神域', price:45,
+      desc:'ピンゾロの与ダメ+8',
+      onCalcPlayerDamage(ctx){ if(ctx.role.type===ROLE.PINZORO) ctx.damage += 8; }
+    },
+    { id:'r_pin_coin', name:'一粒万倍', price:45,
+      desc:'ピンゾロ成立で追加コイン+20（その攻撃）',
+      onCalcPlayerDamage(ctx){ if(ctx.role.type===ROLE.PINZORO) ctx.coins += 20; }
+    },
+    { id:'r_no_hifumi_penalty', name:'厄除け札', price:22,
+      desc:'ヒフミのペナルティを無効化',
+      onCalcPlayerDamage(ctx){ if(ctx.role.type===ROLE.HIFUMI) ctx.hifumiPenalty = 0; }
+    },
+    { id:'r_dmg_flat2', name:'研ぎ澄まされた刃', price:38,
+      desc:'与ダメ+2（全役）',
+      onCalcPlayerDamage(ctx){ ctx.damage += 2; }
+    },
+    { id:'r_boss_dmg3', name:'ボス特効', price:44,
+      desc:'中ボス/ラスボス戦は与ダメ+3',
+      onCalcPlayerDamage(ctx){
+        if(ctx.enemy.isBoss) ctx.damage += 3;
+      }
+    },
+    { id:'r_hpmax6', name:'頑丈な骨', price:36,
+      desc:'最大HP+6（購入時）',
+      onBuy(s){ s.hpMax += 6; s.hp += 6; }
+    },
+    { id:'r_reduce_incoming1', name:'堅実防具', price:42,
+      desc:'被ダメ-1（最低1）',
+      onCalcEnemyDamage(ctx){ ctx.damage = Math.max(1, ctx.damage - 1); }
+    },
+    { id:'r_lifesteal2', name:'血の契約', price:40,
+      desc:'敵を倒した時HP+2',
+      onAfterWin(s, ctx){ s.hp = Math.min(s.hpMax, s.hp + 2); }
+    },
+    { id:'r_coin_power', name:'財布の底', price:34,
+      desc:'所持コインが30以上なら与ダメ+2',
+      onCalcPlayerDamage(ctx){ if(ctx.state.coins >= 30) ctx.damage += 2; }
+    },
+    { id:'r_shop_discount', name:'買い物上手', price:28,
+      desc:'ショップ価格-15%',
+      onShopPrice(ctx){ ctx.price = Math.ceil(ctx.price * 0.85); }
+    },
+    { id:'r_heal_more', name:'回復効率', price:30,
+      desc:'回復量+25%',
+      onHeal(ctx){ ctx.amount = Math.ceil(ctx.amount * 1.25); }
+    },
+    { id:'r_reroll_bonus', name:'粘り勝ち', price:34,
+      desc:'そのターン3回目で確定すると与ダメ+3',
+      onCalcPlayerDamage(ctx){
+        if(ctx.turnRollUsed === ctx.state.battle.maxRolls) ctx.damage += 3;
+      }
+    },
+    { id:'r_gain_coin10pct', name:'強欲の利子', price:46,
+      desc:'戦闘勝利時、所持コインの10%を追加獲得',
+      onAfterWin(s, ctx){ s.coins += Math.floor(s.coins * 0.10); }
+    },
+  ];
+
+  const STORY = {
+    intro: (name)=>[
+      { speaker: name, text: '……ここはどこだ……？' },
+      { speaker: '？？？', text: '迷い人よ。ここは「チンチロ・ダンジョン」。' },
+      { speaker: '？？？', text: '10日間、生き延びることができれば元の世界へ帰れる。' },
+      { speaker: '？？？', text: 'だがルールは単純だ。サイコロで勝ち続けろ。' },
+      { speaker: name, text: '……やるしかない、ってことか。' },
+    ],
+    dayStart: (day, name, isBoss)=> {
+      if(day===1) return [
+        { speaker: name, text:'落ち着け…まずは状況確認だ。' },
+        { speaker: name, text:'サイコロで戦う……チンチロで、生き延びる？' },
+      ];
+      if(day===5) return [
+        { speaker:'？？？', text:'5日目だ。中ボスが待っている。' },
+        { speaker:name, text:'ここを越えれば、道が見えるはず…。' },
+      ];
+      if(day===10) return [
+        { speaker:'？？？', text:'10日目。最後の勝負だ。' },
+        { speaker:name, text:'ここで終わらせる。必ず帰る。' },
+      ];
+      if(isBoss) return [{speaker:name, text:'嫌な気配がする…油断はできない。'}];
+      return [{speaker:name, text:`${day}日目…今日も生き延びる。`}];
+    },
+    win: (day, name)=> {
+      if(day===10) return [
+        { speaker:'？？？', text:'……見事だ。約束通り、帰るがいい。' },
+        { speaker:name, text:'やった…！ これで…！' },
+      ];
+      return [{ speaker:name, text:'よし…次だ。'}];
+    },
+    lose: (name)=>[
+      { speaker:'？？？', text:'運も実力のうち…ここまでだ。' },
+      { speaker:name, text:'くっ……！' },
+    ]
+  };
+
+  // ---------- Core role calculation ----------
+  function calcRole(d){
+    // d: [1..6]*3
+    const a = d.slice().sort((x,y)=>x-y);
+    const [x,y,z]=a;
+    const isSame = (x===y && y===z);
+    const isShigoro = (x===4 && y===5 && z===6);
+    const isHifumi = (x===1 && y===2 && z===3);
+    if(isSame && x===1) return { type:ROLE.PINZORO, name:'ピンゾロ', rank:6, value:1 };
+    if(isShigoro) return { type:ROLE.SHIGORO, name:'シゴロ', rank:5, value:6 };
+    if(isSame) return { type:ROLE.ZORO, name:`${x}ゾロ`, rank:4, value:x };
+    if(isHifumi) return { type:ROLE.HIFUMI, name:'ヒフミ', rank:1, value:0 };
+    // Normal: pair + kicker
+    if(x===y && y!==z) return { type:ROLE.NORMAL, name:`通常目(${z})`, rank:3, value:z };
+    if(y===z && x!==y) return { type:ROLE.NORMAL, name:`通常目(${x})`, rank:3, value:x };
+    // None
+    return { type:ROLE.NONE, name:'役なし', rank:2, value:0 };
+  }
+
+  function baseDamage(role){
+    switch(role.type){
+      case ROLE.PINZORO: return 12;
+      case ROLE.SHIGORO: return 10;
+      case ROLE.ZORO: return role.value * 2;
+      case ROLE.NORMAL: return role.value;
+      case ROLE.HIFUMI: return 0;
+      case ROLE.NONE: return 0;
+    }
+  }
+
+  // ---------- State ----------
+  const state = {
+    screen: 'START',
+    name: '',
+    day: 1,
+    hpMax: 30,
+    hp: 30,
+    coins: 0,
+    healUsed: 0, // run count
+    relics: [],
+    // daily flags
+    shopBoughtToday: false,
+    // battle scoped
+    battle: null,
+    log: [],
+  };
+
+  function log(msg){
+    state.log.push(msg);
+    if(state.log.length>60) state.log.shift();
+  }
+
+  function resetBattle(enemy){
+    state.battle = {
+      enemy,
+      maxRolls: 3,
+      rollUsed: 0,
+      dice: [1,1,1],
+      lastRole: calcRole([1,1,1]),
+      locked: false,
+      skills: { rerollOneLeft: 2, plusOneLeft: 1 },
+      finished: false,
+      pending: null,
+    };
+    // relic battle start
+    for(const r of state.relics){
+      if(r.onBattleStart) r.onBattleStart(state);
+    }
+  }
+
+  function makeEnemy(day){
+    const isMidBoss = (day===5);
+    const isFinalBoss = (day===10);
+    const isBoss = isMidBoss || isFinalBoss;
+    const hp =
+      isFinalBoss ? 60 :
+      isMidBoss   ? 40 :
+      Math.round(18 + (day-1) * 2); // 18..36
+    const name =
+      isFinalBoss ? 'ダンジョンの主' :
+      isMidBoss   ? '門番（中ボス）' :
+      `迷い獣`;
+    const ai = isBoss ? 'smart' : 'normal';
+    return { name, hpMax: hp, hp, isBoss, ai };
+  }
+
+  // ---------- Relic helpers ----------
+  function getRelicById(id){ return RELICS.find(r=>r.id===id); }
+
+  function calcShopPrice(relic){
+    let price = relic.price;
+    const ctx = { price, relic, state };
+    for(const r of state.relics){
+      if(r.onShopPrice) r.onShopPrice(ctx);
+    }
+    return ctx.price;
+  }
+
+  // ---------- Healing ----------
+  function healCost(){
+    // 1st use free
+    if(state.healUsed===0) return 0;
+    return state.healUsed * 6; // 2nd=6, 3rd=12, ...
+  }
+  function healAmount(){
+    const base = Math.ceil(state.hpMax * 0.30);
+    const ctx = { amount: base, state };
+    for(const r of state.relics){
+      if(r.onHeal) r.onHeal(ctx);
+    }
+    return ctx.amount;
+  }
+  function doHeal(){
+    const cost = healCost();
+    if(state.coins < cost) return;
+    state.coins -= cost;
+    state.healUsed += 1;
+    const amt = healAmount();
+    state.hp = clamp(state.hp + amt, 0, state.hpMax);
+    log(`回復：HP +${amt}（コスト🪙${cost}）`);
+    render();
+  }
+
+  // ---------- Battle actions ----------
+  function rollAll(){
+    const b = state.battle;
+    if(!b || b.finished) return;
+    if(b.rollUsed >= b.maxRolls) return;
+    b.dice = [randInt(1,6), randInt(1,6), randInt(1,6)];
+    b.rollUsed++;
+    b.lastRole = calcRole(b.dice);
+    log(`あなた：ロール${b.rollUsed}/${b.maxRolls} → ${b.lastRole.name} [${b.dice.join(',')}]`);
+    render();
+  }
+
+  function useRerollOne(index){
+    const b = state.battle;
+    if(!b || b.finished) return;
+    if(b.skills.rerollOneLeft<=0) return;
+    b.dice[index] = randInt(1,6);
+    b.skills.rerollOneLeft--;
+    b.lastRole = calcRole(b.dice);
+    log(`スキル：サイコロ${index+1}を振り直し → ${b.lastRole.name} [${b.dice.join(',')}]`);
+    render();
+  }
+
+  function usePlusOne(index){
+    const b = state.battle;
+    if(!b || b.finished) return;
+    if(b.skills.plusOneLeft<=0) return;
+    b.dice[index] = (b.dice[index] % 6) + 1;
+    b.skills.plusOneLeft--;
+    b.lastRole = calcRole(b.dice);
+    log(`スキル：サイコロ${index+1}を+1 → ${b.lastRole.name} [${b.dice.join(',')}]`);
+    render();
+  }
+
+  function calcPlayerAttack(role){
+    const b = state.battle;
+    let dmg = baseDamage(role);
+    let coins = dmg; // 基本：与ダメ＝獲得コイン
+    let hifumiPenalty = (role.type===ROLE.HIFUMI) ? 3 : 0;
+
+    const ctx = {
+      role, damage:dmg, coins, hifumiPenalty,
+      enemy: b.enemy, state, turnRollUsed: b.rollUsed
+    };
+
+    for(const r of state.relics){
+      if(r.onCalcPlayerDamage) r.onCalcPlayerDamage(ctx);
+    }
+    ctx.damage = Math.max(0, ctx.damage);
+    ctx.coins = Math.max(0, ctx.coins);
+
+    return ctx;
+  }
+
+  function enemyBestOf3(enemy){
+    const tries = enemy.ai==='smart' ? 3 : 2; // boss a bit smarter
+    let best = null;
+    for(let i=0;i<tries;i++){
+      const dice = [randInt(1,6), randInt(1,6), randInt(1,6)];
+      const role = calcRole(dice);
+      // heuristic score
+      let score = baseDamage(role);
+      if(role.type===ROLE.HIFUMI) score -= 3;
+      if(role.type===ROLE.NONE) score -= 1;
+      if(!best || score > best.score) best = { dice, role, score };
+    }
+    return best;
+  }
+
+  function calcEnemyAttack(role){
+    const b = state.battle;
+    let dmg = baseDamage(role);
+    const ctx = { role, damage:dmg, enemy:b.enemy, state };
+    for(const r of state.relics){
+      if(r.onCalcEnemyDamage) r.onCalcEnemyDamage(ctx);
+    }
+    ctx.damage = Math.max(0, ctx.damage);
+    return ctx;
+  }
+
+  function confirmRole(){
+    const b = state.battle;
+    if(!b || b.finished) return;
+
+    const role = b.lastRole;
+
+    // Player attack
+    const pa = calcPlayerAttack(role);
+
+    // Apply hifumi penalty (coins)
+    if(pa.hifumiPenalty>0){
+      const pay = Math.min(state.coins, pa.hifumiPenalty);
+      state.coins -= pay;
+      log(`ヒフミのペナルティ：🪙-${pay}`);
+      if(pay < pa.hifumiPenalty){
+        const hpLoss = 1;
+        state.hp = Math.max(0, state.hp - hpLoss);
+        log(`コインが足りずHP-${hpLoss}`);
+      }
+    }
+
+    b.enemy.hp = Math.max(0, b.enemy.hp - pa.damage);
+    state.coins += pa.coins;
+    log(`あなたの攻撃：${role.name} → 敵HP -${pa.damage} / 🪙+${pa.coins}`);
+
+    // Check win
+    if(b.enemy.hp<=0){
+      onWinBattle();
+      return;
+    }
+
+    // Enemy attack
+    const best = enemyBestOf3(b.enemy);
+    log(`${b.enemy.name}：${best.role.name} [${best.dice.join(',')}]`);
+    const ea = calcEnemyAttack(best.role);
+    state.hp = Math.max(0, state.hp - ea.damage);
+    log(`敵の攻撃：HP -${ea.damage}`);
+
+    if(state.hp<=0){
+      onLoseBattle();
+      return;
+    }
+
+    // next turn reset roll count/dice? (simple: new turn = reset rollUsed to 0)
+    b.rollUsed = 0;
+    b.dice = [1,1,1];
+    b.lastRole = calcRole(b.dice);
+    log(`--- 次のターン ---`);
+    render();
+  }
+
+  function onWinBattle(){
+    const b = state.battle;
+    b.finished = true;
+    log(`勝利！ ${state.day}日目を生き延びた。`);
+
+    // relic after win
+    const ctx = { enemy:b.enemy };
+    for(const r of state.relics){
+      if(r.onAfterWin) r.onAfterWin(state, ctx);
+    }
+
+    // day clear
+    showStoryModal(`Day ${state.day} 終了`, STORY.win(state.day, state.name), () => {
+      if(state.day===10){
+        showStoryModal('クリア！', [
+          {speaker:'SYSTEM', text:'あなたはダンジョンを脱出した！'},
+        ], () => {
+          state.screen = 'RESULT';
+          render();
+        });
+        return;
+      }
+
+      // reward: sometimes relic choice (B)
+      const chance = 0.45; // 45%（調整OK）
+      if(Math.random() < chance){
+        openRelicReward();
+      } else {
+        nextDay();
+      }
+    });
+  }
+
+  function onLoseBattle(){
+    const b = state.battle;
+    b.finished = true;
+    showStoryModal('敗北…', STORY.lose(state.name), () => {
+      state.screen = 'RESULT';
+      render();
+    });
+  }
+
+  function nextDay(){
+    state.day += 1;
+    state.shopBoughtToday = false;
+    state.screen = 'PREP';
+    render(true);
+  }
+
+  // ---------- UI / Modal ----------
+  function showModal(title, bodyEl){
+    $('modalTitle').textContent = title;
+    $('modalBody').innerHTML = '';
+    $('modalBody').appendChild(bodyEl);
+    $('modal').classList.add('show');
+  }
+  function closeModal(){
+    $('modal').classList.remove('show');
+  }
+  $('modalClose').addEventListener('click', closeModal);
+  $('modal').addEventListener('click', (e)=>{
+    if(e.target === $('modal')) closeModal();
+  });
+
+  function showStoryModal(title, lines, onDone){
+    const wrap = document.createElement('div');
+    wrap.className = 'grid';
+    const logBox = document.createElement('div');
+    logBox.className = 'log';
+    lines.forEach(l=>{
+      const p = document.createElement('p');
+      p.innerHTML = `<b>${escapeHtml(l.speaker)}</b>：${escapeHtml(l.text)}`;
+      logBox.appendChild(p);
+    });
+    wrap.appendChild(logBox);
+    const btn = document.createElement('div');
+    btn.className = 'btn primary';
+    btn.textContent = '次へ';
+    btn.onclick = () => { closeModal(); onDone && onDone(); };
+    wrap.appendChild(btn);
+    showModal(title, wrap);
+  }
+
+  function openRelicReward(){
+    const choices = pickN(RELICS, 3);
+    const wrap = document.createElement('div');
+    wrap.className = 'grid';
+    const p = document.createElement('div');
+    p.className = 'muted';
+    p.textContent = '戦利品：レリックを1つ選べる';
+    wrap.appendChild(p);
+
+    const grid = document.createElement('div');
+    grid.className = 'grid grid3';
+    choices.forEach(rel=>{
+      const c = document.createElement('div');
+      c.className = 'choice';
+      c.innerHTML = `<div class="choiceTitle">${escapeHtml(rel.name)}</div>
+                     <div class="choiceDesc">${escapeHtml(rel.desc)}</div>`;
+      c.onclick = () => {
+        addRelic(rel);
+        closeModal();
+        nextDay();
+      };
+      grid.appendChild(c);
+    });
+    wrap.appendChild(grid);
+
+    const skip = document.createElement('div');
+    skip.className = 'btn';
+    skip.textContent = 'スキップ';
+    skip.onclick = () => { closeModal(); nextDay(); };
+    wrap.appendChild(skip);
+
+    showModal('戦利品', wrap);
+  }
+
+  function escapeHtml(s){
+    return String(s).replace(/[&<>"']/g, (c)=>({
+      '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'
+    }[c]));
+  }
+
+  // ---------- Shop ----------
+  function openShop(){
+    const today = pickN(RELICS, 3);
+    const wrap = document.createElement('div');
+    wrap.className = 'grid';
+    const info = document.createElement('div');
+    info.className = 'muted';
+    info.textContent = 'レリックは高価だ。買えるのは今日1つだけ。';
+    wrap.appendChild(info);
+
+    const grid = document.createElement('div');
+    grid.className = 'grid grid3';
+    today.forEach(rel=>{
+      const price = calcShopPrice(rel);
+      const can = (!state.shopBoughtToday) && (state.coins >= price) && !state.relics.some(r=>r.id===rel.id);
+      const c = document.createElement('div');
+      c.className = 'choice';
+      c.innerHTML = `<div class="choiceTitle">${escapeHtml(rel.name)} <span class="muted">🪙${price}</span></div>
+                     <div class="choiceDesc">${escapeHtml(rel.desc)}</div>
+                     <div class="choiceDesc">${state.relics.some(r=>r.id===rel.id) ? '（所持済み）' : (state.shopBoughtToday ? '（今日は購入済み）' : '')}</div>`;
+      c.style.opacity = can ? '1' : '.55';
+      c.onclick = () => {
+        if(!can) return;
+        buyRelic(rel, price);
+        closeModal();
+        render();
+      };
+      grid.appendChild(c);
+    });
+    wrap.appendChild(grid);
+
+    const close = document.createElement('div');
+    close.className = 'btn';
+    close.textContent = '閉じる';
+    close.onclick = () => closeModal();
+    wrap.appendChild(close);
+
+    showModal('ショップ', wrap);
+  }
+
+  function buyRelic(rel, price){
+    state.coins -= price;
+    addRelic(rel, true);
+    state.shopBoughtToday = true;
+    log(`購入：${rel.name}（🪙-${price}）`);
+    render();
+  }
+
+  function addRelic(rel, fromShop=false){
+    // clone to keep functions
+    const r = getRelicById(rel.id);
+    state.relics.push(r);
+    if(r.onBuy) r.onBuy(state);
+  }
+
+  // ---------- Screens ----------
+  function setBar(buttons){
+    const bar = $('bar');
+    const inner = $('barInner');
+    inner.innerHTML = '';
+    if(!buttons || buttons.length===0){
+      bar.style.display = 'none';
+      return;
+    }
+    bar.style.display = 'flex';
+    buttons.forEach(b=>{
+      inner.appendChild(b);
+    });
+  }
+
+  function render(updateStory=false){
+    $('day').textContent = state.day;
+    $('hp').textContent = state.hp;
+    $('hpMax').textContent = state.hpMax;
+    $('coin').textContent = state.coins;
+    $('topTitle').textContent = state.name ? `チンチロ・ダンジョン（${state.name}）` : 'チンチロ・ダンジョン';
+
+    const main = $('main');
+    main.innerHTML = '';
+
+    if(state.screen==='START'){
+      setBar([]);
+      const c = document.createElement('div');
+      c.className = 'card';
+      c.innerHTML = `
+        <div class="h1">迷い込んだあなたへ</div>
+        <div class="muted">主人公の名前を入力して、10日間のチンチロを始めよう。</div>
+        <div style="height:10px"></div>
+        <input id="nameInput" maxlength="12" placeholder="名前（例：いちまる）" />
+        <div style="height:10px"></div>
+        <div class="btn primary" id="startBtn">ゲーム開始</div>
+        <div style="height:8px"></div>
+        <div class="hint">スマホ操作前提：ボタン大きめ／下部バーで主要操作。</div>
+      `;
+      main.appendChild(c);
+
+      const startBtn = c.querySelector('#startBtn');
+      startBtn.onclick = () => {
+        const name = c.querySelector('#nameInput').value.trim() || '名無し';
+        state.name = name;
+        state.screen = 'PREP';
+        state.day = 1;
+        state.hpMax = 30;
+        state.hp = 30;
+        state.coins = 0;
+        state.healUsed = 0;
+        state.relics = [];
+        state.shopBoughtToday = false;
+        state.log = [];
+        showStoryModal('プロローグ', STORY.intro(name), () => {
+          render(true);
+        });
+      };
+      return;
+    }
+
+    if(state.screen==='RESULT'){
+      setBar([]);
+      const c = document.createElement('div');
+      c.className = 'card';
+      const cleared = (state.day===10 && state.hp>0);
+      c.innerHTML = `
+        <div class="h1">${cleared ? 'クリア！' : 'ゲームオーバー'}</div>
+        <div class="muted">Day ${state.day} / HP ${state.hp}/${state.hpMax} / 🪙 ${state.coins}</div>
+        <div class="divider"></div>
+        <div class="muted">所持レリック：${state.relics.length}</div>
+        <div style="height:10px"></div>
+        <div class="chips">${state.relics.map(r=>`<div class="chip">${escapeHtml(r.name)}</div>`).join('')}</div>
+        <div style="height:12px"></div>
+        <div class="btn primary" id="retry">最初から</div>
+      `;
+      main.appendChild(c);
+      c.querySelector('#retry').onclick = ()=>{ state.screen='START'; render(); };
+      return;
+    }
+
+    // PREP screen
+    if(state.screen==='PREP'){
+      setBar([]);
+
+      if(updateStory){
+        const enemy = makeEnemy(state.day);
+        showStoryModal(`Day ${state.day} 開始`, STORY.dayStart(state.day, state.name, enemy.isBoss), () => {});
+      }
+
+      const enemy = makeEnemy(state.day);
+      const isBoss = enemy.isBoss;
+
+      const prep = document.createElement('div');
+      prep.className = 'card';
+      prep.innerHTML = `
+        <div class="h1">準備フェーズ（Day ${state.day}）</div>
+        <div class="muted">この後、戦闘が始まる。装備を整えろ。</div>
+        <div class="divider"></div>
+        <div class="row">
+          <div class="col">
+            <div class="muted">回復</div>
+            <div class="hint">初回無料。使うほど🪙が増える。</div>
+            <div style="height:8px"></div>
+            <div class="btn ok" id="healBtn"></div>
+          </div>
+          <div class="col">
+            <div class="muted">ショップ</div>
+            <div class="hint">レリックは高価。買えるのは1つ。</div>
+            <div style="height:8px"></div>
+            <div class="btn warn" id="shopBtn">ショップへ</div>
+          </div>
+        </div>
+        <div class="divider"></div>
+        <div class="muted">所持レリック（${state.relics.length}）</div>
+        <div style="height:8px"></div>
+        <div class="chips">${state.relics.map(r=>`<div class="chip">${escapeHtml(r.name)}</div>`).join('') || '<div class="chip">なし</div>'}</div>
+        <div class="divider"></div>
+        <div class="muted">今日の敵：<b>${escapeHtml(enemy.name)}</b>（HP ${enemy.hp}/${enemy.hpMax}） ${isBoss ? '<span class="muted">[BOSS]</span>' : ''}</div>
+      `;
+      main.appendChild(prep);
+
+      const cost = healCost();
+      const amt = healAmount();
+      const healBtn = prep.querySelector('#healBtn');
+      healBtn.textContent = `回復する（HP +${amt} / 🪙${cost}）`;
+      healBtn.setAttribute('aria-disabled', (state.hp>=state.hpMax || state.coins<cost) ? 'true' : 'false');
+      healBtn.onclick = doHeal;
+
+      prep.querySelector('#shopBtn').onclick = openShop;
+
+      // bottom bar: start battle
+      const go = document.createElement('div');
+      go.className = 'btn primary';
+      go.textContent = '戦闘開始';
+      go.onclick = () => {
+        state.screen = 'BATTLE';
+        resetBattle(enemy);
+        render();
+      };
+      setBar([go]);
+
+      // log card
+      const logCard = document.createElement('div');
+      logCard.className = 'card';
+      logCard.innerHTML = `<div class="h1">ログ</div><div class="log">${state.log.map(x=>`<p>${escapeHtml(x)}</p>`).join('') || '<p class="muted">（まだ何もない）</p>'}</div>`;
+      main.appendChild(logCard);
+
+      return;
+    }
+
+    // BATTLE screen
+    if(state.screen==='BATTLE'){
+      const b = state.battle;
+      const enemy = b.enemy;
+
+      const battle = document.createElement('div');
+      battle.className = 'card';
+      battle.innerHTML = `
+        <div class="h1">戦闘（Day ${state.day}）</div>
+        <div class="muted"><b>${escapeHtml(enemy.name)}</b> HP ${enemy.hp}/${enemy.hpMax}</div>
+
+        <div class="divider"></div>
+
+        <div class="muted">あなたのロール：<b>${escapeHtml(b.lastRole.name)}</b>（${b.rollUsed}/${b.maxRolls}）</div>
+        <div class="diceRow">
+          ${b.dice.map((v,i)=>`<div class="die" data-die="${i}">${v}</div>`).join('')}
+        </div>
+
+        <div class="hint">スキル（少しだけ操作）：サイコロ1個を「振り直し」or「+1」</div>
+        <div style="height:8px"></div>
+        <div class="row">
+          <div class="col">
+            <div class="btn" id="skillReroll">振り直し（残り${b.skills.rerollOneLeft}）</div>
+          </div>
+          <div class="col">
+            <div class="btn" id="skillPlus">+1（残り${b.skills.plusOneLeft}）</div>
+          </div>
+        </div>
+
+        <div class="divider"></div>
+
+        <div class="muted">操作</div>
+        <div class="row">
+          <div class="col"><div class="btn warn" id="rollBtn">ロール（全振り）</div></div>
+          <div class="col"><div class="btn ok" id="confirmBtn">確定して攻撃</div></div>
+        </div>
+
+        <div class="divider"></div>
+        <div class="muted">ヒント：最大3回まで全振り。良い役が出たら確定。</div>
+      `;
+      main.appendChild(battle);
+
+      const rollBtn = battle.querySelector('#rollBtn');
+      rollBtn.setAttribute('aria-disabled', (b.rollUsed>=b.maxRolls) ? 'true' : 'false');
+      rollBtn.onclick = rollAll;
+
+      const confirmBtn = battle.querySelector('#confirmBtn');
+      confirmBtn.onclick = confirmRole;
+
+      // skill: choose a die by tapping it (simple)
+      let selectedDie = 0;
+      battle.querySelectorAll('.die').forEach(d=>{
+        d.style.outline = 'none';
+        d.onclick = ()=>{
+          selectedDie = Number(d.getAttribute('data-die'));
+          battle.querySelectorAll('.die').forEach(x=>x.style.outline='none');
+          d.style.outline = '2px solid rgba(102,227,255,.8)';
+        };
+      });
+      // default highlight
+      const firstDie = battle.querySelector('.die[data-die="0"]');
+      if(firstDie) firstDie.style.outline = '2px solid rgba(102,227,255,.8)';
+
+      const skillR = battle.querySelector('#skillReroll');
+      skillR.setAttribute('aria-disabled', b.skills.rerollOneLeft<=0 ? 'true':'false');
+      skillR.onclick = ()=> useRerollOne(selectedDie);
+
+      const skillP = battle.querySelector('#skillPlus');
+      skillP.setAttribute('aria-disabled', b.skills.plusOneLeft<=0 ? 'true':'false');
+      skillP.onclick = ()=> usePlusOne(selectedDie);
+
+      // bottom bar: quick actions
+      const b1 = document.createElement('div');
+      b1.className = 'btn warn';
+      b1.textContent = 'ロール';
+      b1.setAttribute('aria-disabled', (b.rollUsed>=b.maxRolls) ? 'true' : 'false');
+      b1.onclick = rollAll;
+
+      const b2 = document.createElement('div');
+      b2.className = 'btn ok';
+      b2.textContent = '確定';
+      b2.onclick = confirmRole;
+
+      setBar([b1,b2]);
+
+      // log
+      const logCard = document.createElement('div');
+      logCard.className = 'card';
+      logCard.innerHTML = `<div class="h1">ログ</div><div class="log">${state.log.map(x=>`<p>${escapeHtml(x)}</p>`).join('') || '<p class="muted">（まだ何もない）</p>'}</div>`;
+      main.appendChild(logCard);
+
+      return;
+    }
+  }
+
+  // ---------- Start ----------
+  state.screen = 'START';
+  render();
+
+})();
+</script>
+</body>
+</html>
