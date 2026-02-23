@@ -693,11 +693,38 @@
     // battle scoped
     battle: null,
     log: [],
+    logExpanded: false,
   };
 
   function log(msg){
     state.log.push(msg);
     if(state.log.length>60) state.log.shift();
+  }
+
+  function buildLogHtml(){
+    const rev = state.log.slice().reverse(); // 最新が上
+    const max = state.logExpanded ? rev.length : 10;
+    const slice = rev.slice(0, max);
+
+    const body = slice.map((x,i)=>{
+      const prefix = (i===0 && slice.length>0) ? '<b>▶ </b>' : '';
+      const content = (i===0) ? `<b>${escapeHtml(x)}</b>` : escapeHtml(x);
+      return `<p>${prefix}${content}</p>`;
+    }).join('');
+
+    const empty = '<p class="muted">（まだ何もない）</p>';
+    const toggleNeeded = rev.length > 10;
+
+    const toggleBtn = toggleNeeded
+      ? `<div style="height:10px"></div>
+        <div class="btn" id="toggleLogBtn">${state.logExpanded ? 'たたむ' : 'もっと見る（全' + rev.length + '件）'}</div>`
+      : '';
+
+    return `
+      <div class="h1">ログ</div>
+      <div class="log">${body || empty}</div>
+      ${toggleBtn}
+    `;
   }
 
   function resetBattle(enemy){
@@ -894,7 +921,6 @@
     // Check win
     if(b.enemy.hp<=0){
       onWinBattle();
-      if ($('helpBtn')) $('helpBtn').onclick = openHelp;
       return;
     }
 
@@ -907,7 +933,6 @@
 
     if(state.hp<=0){
       onLoseBattle();
-      if ($('helpBtn')) $('helpBtn').onclick = openHelp;
       return;
     }
 
@@ -968,6 +993,7 @@
     state.day += 1;
     state.shopBoughtToday = false;
     state.screen = 'PREP';
+    state.logExpanded = false;
     render(true);
   }
 
@@ -1107,7 +1133,6 @@
     inner.innerHTML = '';
     if(!buttons || buttons.length===0){
       bar.style.display = 'none';
-      if ($('helpBtn')) $('helpBtn').onclick = openHelp;
       return;
     }
     bar.style.display = 'flex';
@@ -1125,6 +1150,8 @@
 
     const main = $('main');
     main.innerHTML = '';
+
+    if ($('helpBtn')) $('helpBtn').onclick = openHelp;
 
     if(state.screen==='START'){
       setBar([]);
@@ -1178,7 +1205,6 @@
         <div class="btn primary" id="retry">最初から</div>
       `;
       main.appendChild(c);
-      if ($('helpBtn')) $('helpBtn').onclick = openHelp;
       c.querySelector('#retry').onclick = ()=>{ state.screen='START'; render(); };
       return;
     }
@@ -1247,8 +1273,12 @@
       // log card
       const logCard = document.createElement('div');
       logCard.className = 'card';
-      logCard.innerHTML = `<div class="h1">ログ</div><div class="log">${state.log.map(x=>`<p>${escapeHtml(x)}</p>`).join('') || '<p class="muted">（まだ何もない）</p>'}</div>`;
+      logCard.innerHTML = buildLogHtml();
       main.appendChild(logCard);
+      const t = logCard.querySelector('#toggleLogBtn');
+      if(t){
+        t.onclick = () => { state.logExpanded = !state.logExpanded; render(); };
+      }
 
       return;
     }
@@ -1341,10 +1371,13 @@
       // log
       const logCard = document.createElement('div');
       logCard.className = 'card';
-      logCard.innerHTML = `<div class="h1">ログ</div><div class="log">${state.log.map(x=>`<p>${escapeHtml(x)}</p>`).join('') || '<p class="muted">（まだ何もない）</p>'}</div>`;
+      logCard.innerHTML = buildLogHtml();
       main.appendChild(logCard);
+      const t = logCard.querySelector('#toggleLogBtn');
+      if(t){
+        t.onclick = () => { state.logExpanded = !state.logExpanded; render(); };
+      }
       
-      if ($('helpBtn')) $('helpBtn').onclick = openHelp;
       return;
     }
   }
@@ -1355,6 +1388,7 @@
 
     const box = document.createElement('div');
     box.className = 'log';
+    box.style.maxHeight = '60vh';
     box.innerHTML = `
       <p><b>ルール（概要）</b><br>
       ・10日目のボスを倒せばクリア。HPが0でゲームオーバー。<br>
