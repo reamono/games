@@ -12,6 +12,7 @@
       --shadow:0 14px 30px rgba(0,0,0,.38);
       --r:18px;
       --btnH:52px;
+      --barSpace: 0px;
     }
     *{box-sizing:border-box; -webkit-tap-highlight-color:transparent;}
     body{
@@ -20,7 +21,7 @@
       color:var(--text);
       font-family: system-ui, -apple-system, Segoe UI, Roboto, "Hiragino Kaku Gothic ProN", "Noto Sans JP", sans-serif;
       display:flex; justify-content:center;
-      padding:16px 12px calc(16px + env(safe-area-inset-bottom));
+      padding:16px 12px calc(16px + var(--barSpace) + env(safe-area-inset-bottom));
     }
     .app{ width:min(520px, 100%); }
     .topbar{
@@ -225,6 +226,105 @@
     const pool = getUnownedRelics();
     if(pool.length <= n) return pool.slice(); // 足りないならあるだけ
     return pickN(pool, n);
+  }
+
+  // --- Tagging (lightweight) ---
+  function relicTags(relicId){
+    const tags = [];
+    const id = relicId;
+
+    // role-based
+    if(id.includes('zoro')) tags.push('ZORO');
+    if(id.includes('normal')) tags.push('NORMAL');
+    if(id.includes('shigoro')) tags.push('SHIGORO');
+    if(id.includes('pin') || id.includes('pinzoro')) tags.push('PIN');
+
+    // economy / shop
+    if(id.includes('coin') || id.includes('win_coin') || id.includes('gain_coin') || id.includes('start_coin')) tags.push('ECON');
+    if(id.includes('shop')) tags.push('SHOP');
+
+    // skills / roll control
+    if(id.includes('reroll') || id.includes('plus_one') || id.includes('precision')) tags.push('SKILL');
+    if(id.includes('roll')) tags.push('ROLL');
+
+    // sustain / defense
+    if(id.includes('heal') || id.includes('medicine')) tags.push('HEAL');
+    if(id.includes('hpmax') || id.includes('lifesteal') || id.includes('battle_start_heal')) tags.push('HP');
+    if(id.includes('shield') || id.includes('guard') || id.includes('reduce_incoming') || id.includes('opening_guard') || id.includes('endurance')) tags.push('DEF');
+
+    // boss
+    if(id.includes('boss')) tags.push('BOSS');
+
+    // fallback
+    if(tags.length===0) tags.push('MISC');
+    return tags;
+  }
+
+  function ownedTagCounts(){
+    const counts = new Map();
+    for(const r of state.relics){
+      for(const t of relicTags(r.id)){
+        counts.set(t, (counts.get(t)||0) + 1);
+      }
+    }
+    return counts;
+  }
+
+  // weighted choice without replacement
+  function weightedPickN(pool, n, weightFn){
+    const chosen = [];
+    const src = pool.slice();
+    for(let k=0; k<n && src.length>0; k++){
+      let total = 0;
+      const weights = src.map(x=>{
+        const w = Math.max(0.0001, weightFn(x));
+        total += w;
+        return w;
+      });
+      let r = Math.random() * total;
+      let idx = 0;
+      for(; idx<weights.length; idx++){
+        r -= weights[idx];
+        if(r<=0) break;
+      }
+      chosen.push(src[idx]);
+      src.splice(idx,1);
+    }
+    return chosen;
+  }
+
+  // --- Shop synergy pick ---
+  // biasRate: 0.70 = 70%はシナジー寄せ、30%は完全ランダム
+  function pickShopRelicsSynergy(n, biasRate=0.70){
+    const pool = getUnownedRelics();
+    if(pool.length<=n) return pool.slice();
+
+    const counts = ownedTagCounts();
+
+    // まだ何も持ってない序盤は普通にランダム
+    if(state.relics.length===0) return pickN(pool, n);
+
+    const synergyN = Math.max(0, Math.min(n, Math.round(n * biasRate)));
+    const randomN  = n - synergyN;
+
+    // synergy picks
+    const synergyPicks = weightedPickN(pool, synergyN, (rel)=>{
+      const tags = relicTags(rel.id);
+      let score = 1; // base
+      for(const t of tags){
+        score += (counts.get(t)||0) * 1.8; // 所持タグが多いほど重く
+      }
+      // 強すぎ偏り防止：SHOPタグは少し控えめ
+      if(tags.includes('SHOP')) score *= 0.85;
+      return score;
+    });
+
+    // remove already chosen
+    const chosenIds = new Set(synergyPicks.map(x=>x.id));
+    const rest = pool.filter(r=>!chosenIds.has(r.id));
+
+    const randomPicks = pickN(rest, randomN);
+    return synergyPicks.concat(randomPicks);
   }
 
   // ---------- Game Data ----------
@@ -611,6 +711,80 @@
   ];
   // --------------- /RELICS ---------------
 
+  // --- Price rebalance (3 tiers) ---
+  // Common: 14–20 / Uncommon: 22–30 / Rare: 32–44 / Ultra: 46–55
+  const RELIC_PRICE_OVERRIDES = {
+    // ===== Common (14–20): 土台・小粒・保険 =====
+    r_safe_none: 14,
+    r_hifumi_retry: 16,
+    r_no_hifumi_penalty: 16,
+    r_coin_on_any: 16,
+    r_roll_tax: 16,
+    r_normal_coin_scale: 16,
+    r_turn_bonus_if_role: 18,
+    r_first_roll_boost: 18,
+    r_fullhp_power: 18,
+    r_victory_medicine: 18,
+    r_shop_discount: 18,
+    r_hpmax6: 20,
+    r_heal_more: 20,
+
+    // ===== Uncommon (22–30): 軸の補強・運用 =====
+    r_more_reroll_one: 24,
+    r_more_plus_one: 26,
+    r_roll_refund: 26,
+    r_reroll_bonus: 26,
+    r_normal_plus2: 24,
+    r_big_normal: 26,
+    r_zoro_plus2: 26,
+    r_high_zoro: 28,
+    r_zoro_coin_scale: 28,
+    r_shigoro_plus4: 28,
+    r_shigoro_coin: 30,
+    r_lowhp_power: 28,
+    r_coin_power: 28,
+    r_start_coin: 28,
+    r_heal_after_none: 26,
+    r_damage_to_coin: 30,
+
+    // ===== Rare (32–44): 主役級・防御・ボス寄り =====
+    r_dmg_flat2: 38,          // フラット強化は高め維持
+    r_precision_bonus: 34,
+    r_zoro_chain: 36,
+    r_normal_streak: 36,
+    r_zoro_boss: 40,
+    r_shigoro_guard: 38,
+    r_shigoro_heal: 40,
+    r_reduce_incoming1: 38,
+    r_opening_guard: 40,
+    r_endurance: 32,
+    r_finisher: 38,
+    r_big_hit_coin: 40,
+    r_boss_dmg3: 40,
+    r_boss_shield: 44,
+    r_boss_start_coin: 34,
+    r_battle_start_heal: 36,
+    r_lifesteal2: 40,
+    r_win_coin_flat: 30,      // 勝利+8は強すぎないので安め寄りでも可
+
+    // ===== Ultra (46–55): 夢枠（ピンゾロ/破城槌/高級ディスカウント） =====
+    r_pin_plus8: 50,
+    r_pin_coin: 50,
+    r_pin_boss_break: 55,
+    r_boss_breaker: 55,
+    r_shop_discount2: 50,
+    r_heal_more2: 46,
+    r_hpmax10: 46,
+    r_hifumi_to_damage: 46,
+    r_gamble_power: 44,       // 危険な賭けは強いのでレア上限寄り
+    r_gain_coin10pct: 46,
+    r_boss_bonus_coin: 44,
+    r_win_zoro_coin: 34,
+    r_win_normal_coin: 32,
+    r_win_shigoro_coin: 36,
+    r_win_pin_heal: 46,
+  };
+
   const STORY = {
     intro: (name)=>[
       { speaker: name, text: '……ここはどこだ……？' },
@@ -772,7 +946,7 @@
   function getRelicById(id){ return RELICS.find(r=>r.id===id); }
 
   function calcShopPrice(relic){
-    let price = relic.price;
+    let price = (RELIC_PRICE_OVERRIDES[relic.id] ?? relic.price);
     const ctx = { price, relic, state };
     for(const r of state.relics){
       if(r.onShopPrice) r.onShopPrice(ctx);
@@ -787,7 +961,7 @@
     return state.healUsed * 6; // 2nd=6, 3rd=12, ...
   }
   function healAmount(){
-    const base = Math.ceil(state.hpMax * 0.30);
+    const base = Math.ceil(state.hpMax * 0.25);
     const ctx = { amount: base, state };
     for(const r of state.relics){
       if(r.onHeal) r.onHeal(ctx);
@@ -922,7 +1096,7 @@
     }
 
     const role = b.lastRole;
-    
+
     // ターン開始時点で「今回の役」を確定して保存（勝利判定・敵攻撃軽減・連鎖用）
     b._prevPlayerRoleType = b._lastPlayerRoleType;
     b._lastPlayerRoleType = role.type;
@@ -1140,7 +1314,7 @@
 
   // ---------- Shop ----------
   function openShop(){
-    const today = pickRelicsExcludingOwned(3);
+    const today = pickShopRelicsSynergy(3, 0.70);
     const wrap = document.createElement('div');
     wrap.className = 'grid';
     const info = document.createElement('div');
@@ -1172,8 +1346,8 @@
     // --- スキル購入（振り直し / +1） ---
     const skillCard = document.createElement('div');
     skillCard.className = 'choice';
-    const priceR = 8 + state.skillBought.rerollOne * 4; // 買うほど上がる
-    const priceP = 10 + state.skillBought.plusOne * 5;
+    const priceR = 12 + state.skillBought.rerollOne * 6; // 振り直し +1
+    const priceP = 16 + state.skillBought.plusOne * 8;   // +1 +1
 
     skillCard.innerHTML = `
       <div class="choiceTitle">スキル回数を購入</div>
@@ -1240,14 +1414,16 @@
     const bar = $('bar');
     const inner = $('barInner');
     inner.innerHTML = '';
+
     if(!buttons || buttons.length===0){
       bar.style.display = 'none';
+      document.documentElement.style.setProperty('--barSpace', '0px'); // ←追加
       return;
     }
+
     bar.style.display = 'flex';
-    buttons.forEach(b=>{
-      inner.appendChild(b);
-    });
+    document.documentElement.style.setProperty('--barSpace', '96px'); // ←追加（必要なら 88〜110 で微調整）
+    buttons.forEach(b=> inner.appendChild(b));
   }
 
   function render(updateStory=false){
