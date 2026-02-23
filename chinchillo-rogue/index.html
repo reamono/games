@@ -216,6 +216,17 @@
     return a.slice(0,n);
   };
 
+  function getUnownedRelics(){
+    const owned = new Set(state.relics.map(r=>r.id));
+    return RELICS.filter(r => !owned.has(r.id));
+  }
+
+  function pickRelicsExcludingOwned(n){
+    const pool = getUnownedRelics();
+    if(pool.length <= n) return pool.slice(); // 足りないならあるだけ
+    return pickN(pool, n);
+  }
+
   // ---------- Game Data ----------
   const ROLE = {
     PINZORO:'PINZORO',
@@ -234,11 +245,79 @@
   // - onAfterLose(state, ctx)
   //
   // Keep effects "実装しやすい" 方向。後で複雑なシナジーも追加可能。
+  // --------------- RELICS (50) ---------------
   const RELICS = [
+    // === Core / Reroll & Roll economy ===
     { id:'r_add_reroll', name:'追加振り', price:32,
       desc:'各戦闘でロール回数+1（最大4回）',
       onBattleStart(s){ s.battle.maxRolls = Math.min(4, s.battle.maxRolls + 1); }
     },
+    { id:'r_more_reroll_one', name:'一点リロール+', price:30,
+      desc:'各戦闘：サイコロ1個の振り直し回数+1',
+      onBattleStart(s){ s.battle.skills.rerollOneLeft += 1; }
+    },
+    { id:'r_more_plus_one', name:'+1調整+', price:34,
+      desc:'各戦闘：+1調整の回数+1',
+      onBattleStart(s){ s.battle.skills.plusOneLeft += 1; }
+    },
+    { id:'r_roll_refund', name:'粘りの返礼', price:36,
+      desc:'そのターン3回目で確定すると追加コイン+6',
+      onCalcPlayerDamage(ctx){
+        if(ctx.turnRollUsed === ctx.state.battle.maxRolls) ctx.coins += 6;
+      }
+    },
+    { id:'r_first_roll_boost', name:'初手の圧', price:32,
+      desc:'各ターン1回目で確定すると与ダメ+2',
+      onCalcPlayerDamage(ctx){
+        if(ctx.turnRollUsed === 1) ctx.damage += 2;
+      }
+    },
+    { id:'r_safe_none', name:'空振り保険', price:26,
+      desc:'役なしのとき、追加コイン+3（ダメ0でも稼げる）',
+      onCalcPlayerDamage(ctx){
+        if(ctx.role.type===ROLE.NONE) ctx.coins += 3;
+      }
+    },
+    { id:'r_hifumi_retry', name:'やり直し券', price:28,
+      desc:'ヒフミのとき、ペナルティ-2（🪙-1相当）',
+      onCalcPlayerDamage(ctx){
+        if(ctx.role.type===ROLE.HIFUMI) ctx.hifumiPenalty = Math.max(0, ctx.hifumiPenalty - 2);
+      }
+    },
+    { id:'r_no_hifumi_penalty', name:'厄除け札', price:22,
+      desc:'ヒフミのペナルティを無効化',
+      onCalcPlayerDamage(ctx){ if(ctx.role.type===ROLE.HIFUMI) ctx.hifumiPenalty = 0; }
+    },
+    { id:'r_hifumi_to_damage', name:'逆境の心得', price:40,
+      desc:'ヒフミでも与ダメ3（ペナルティは通常通り）',
+      onCalcPlayerDamage(ctx){
+        if(ctx.role.type===ROLE.HIFUMI) ctx.damage = Math.max(ctx.damage, 3);
+      }
+    },
+
+    // === Flat power / Conditional power ===
+    { id:'r_dmg_flat2', name:'研ぎ澄まされた刃', price:38,
+      desc:'与ダメ+2（全役）',
+      onCalcPlayerDamage(ctx){ ctx.damage += 2; }
+    },
+    { id:'r_fullhp_power', name:'万全の一撃', price:34,
+      desc:'HP満タンなら与ダメ+2',
+      onCalcPlayerDamage(ctx){
+        if(ctx.state.hp === ctx.state.hpMax) ctx.damage += 2;
+      }
+    },
+    { id:'r_lowhp_power', name:'背水の刃', price:38,
+      desc:'HPが半分以下なら与ダメ+3',
+      onCalcPlayerDamage(ctx){
+        if(ctx.state.hp <= Math.floor(ctx.state.hpMax/2)) ctx.damage += 3;
+      }
+    },
+    { id:'r_coin_power', name:'財布の底', price:34,
+      desc:'所持コインが30以上なら与ダメ+2',
+      onCalcPlayerDamage(ctx){ if(ctx.state.coins >= 30) ctx.damage += 2; }
+    },
+
+    // === ZORO build ===
     { id:'r_zoro_plus2', name:'ゾロ目増幅', price:28,
       desc:'ゾロ目の与ダメ+2',
       onCalcPlayerDamage(ctx){ if(ctx.role.type===ROLE.ZORO) ctx.damage += 2; }
@@ -249,6 +328,27 @@
         if(ctx.role.type===ROLE.ZORO && ctx.role.value>=5) ctx.damage += 3;
       }
     },
+    { id:'r_zoro_coin_scale', name:'目の祝福', price:36,
+      desc:'ゾロ目のとき追加コイン+目',
+      onCalcPlayerDamage(ctx){
+        if(ctx.role.type===ROLE.ZORO) ctx.coins += ctx.role.value;
+      }
+    },
+    { id:'r_zoro_chain', name:'ゾロの連鎖', price:44,
+      desc:'前ターンもゾロ目なら、今回のゾロ目ダメージ+4',
+      onCalcPlayerDamage(ctx){
+        const b = ctx.state.battle;
+        if(ctx.role.type===ROLE.ZORO && b && b._prevPlayerRoleType===ROLE.ZORO) ctx.damage += 4;
+      }
+    },
+    { id:'r_zoro_boss', name:'ゾロの覇気', price:46,
+      desc:'ボス戦のゾロ目はさらに与ダメ+2',
+      onCalcPlayerDamage(ctx){
+        if(ctx.enemy.isBoss && ctx.role.type===ROLE.ZORO) ctx.damage += 2;
+      }
+    },
+
+    // === NORMAL (pair+kicker) build ===
     { id:'r_normal_plus2', name:'キッカー強化', price:26,
       desc:'通常目（2ペア+残り目）の与ダメ+2',
       onCalcPlayerDamage(ctx){ if(ctx.role.type===ROLE.NORMAL) ctx.damage += 2; }
@@ -259,6 +359,21 @@
         if(ctx.role.type===ROLE.NORMAL && ctx.role.value>=5) ctx.damage += 2;
       }
     },
+    { id:'r_normal_coin_scale', name:'現実的な稼ぎ', price:28,
+      desc:'通常目のとき追加コイン+2',
+      onCalcPlayerDamage(ctx){
+        if(ctx.role.type===ROLE.NORMAL) ctx.coins += 2;
+      }
+    },
+    { id:'r_normal_streak', name:'安定の連撃', price:42,
+      desc:'前ターンも通常目なら、今回の通常目与ダメ+3',
+      onCalcPlayerDamage(ctx){
+        const b = ctx.state.battle;
+        if(ctx.role.type===ROLE.NORMAL && b && b._prevPlayerRoleType===ROLE.NORMAL) ctx.damage += 3;
+      }
+    },
+
+    // === SHIGORO build ===
     { id:'r_shigoro_plus4', name:'シゴロ強化', price:36,
       desc:'シゴロの与ダメ+4',
       onCalcPlayerDamage(ctx){ if(ctx.role.type===ROLE.SHIGORO) ctx.damage += 4; }
@@ -267,6 +382,21 @@
       desc:'シゴロ成立で追加コイン+8（その攻撃）',
       onCalcPlayerDamage(ctx){ if(ctx.role.type===ROLE.SHIGORO) ctx.coins += 8; }
     },
+    { id:'r_shigoro_guard', name:'整列の守り', price:44,
+      desc:'シゴロで攻撃したターン、次の敵攻撃ダメージ-2（最低1）',
+      onCalcEnemyDamage(ctx){
+        const b = ctx.state.battle;
+        if(b && b._lastPlayerRoleType===ROLE.SHIGORO) ctx.damage = Math.max(1, ctx.damage - 2);
+      }
+    },
+    { id:'r_shigoro_heal', name:'順子の癒し', price:46,
+      desc:'シゴロで勝利した戦闘後、HP+3',
+      onAfterWin(s, ctx){
+        if(ctx.lastRoleType===ROLE.SHIGORO) s.hp = Math.min(s.hpMax, s.hp + 3);
+      }
+    },
+
+    // === PINZORO build (dream) ===
     { id:'r_pin_plus8', name:'神域', price:45,
       desc:'ピンゾロの与ダメ+8',
       onCalcPlayerDamage(ctx){ if(ctx.role.type===ROLE.PINZORO) ctx.damage += 8; }
@@ -275,55 +405,211 @@
       desc:'ピンゾロ成立で追加コイン+20（その攻撃）',
       onCalcPlayerDamage(ctx){ if(ctx.role.type===ROLE.PINZORO) ctx.coins += 20; }
     },
-    { id:'r_no_hifumi_penalty', name:'厄除け札', price:22,
-      desc:'ヒフミのペナルティを無効化',
-      onCalcPlayerDamage(ctx){ if(ctx.role.type===ROLE.HIFUMI) ctx.hifumiPenalty = 0; }
+    { id:'r_pin_boss_break', name:'一の断罪', price:50,
+      desc:'ボス戦のピンゾロはさらに与ダメ+6',
+      onCalcPlayerDamage(ctx){
+        if(ctx.enemy.isBoss && ctx.role.type===ROLE.PINZORO) ctx.damage += 6;
+      }
     },
-    { id:'r_dmg_flat2', name:'研ぎ澄まされた刃', price:38,
-      desc:'与ダメ+2（全役）',
-      onCalcPlayerDamage(ctx){ ctx.damage += 2; }
-    },
+
+    // === Boss focused ===
     { id:'r_boss_dmg3', name:'ボス特効', price:44,
       desc:'中ボス/ラスボス戦は与ダメ+3',
       onCalcPlayerDamage(ctx){
         if(ctx.enemy.isBoss) ctx.damage += 3;
       }
     },
+    { id:'r_boss_shield', name:'門番殺しの鎧', price:48,
+      desc:'ボス戦の被ダメ-2（最低1）',
+      onCalcEnemyDamage(ctx){
+        if(ctx.enemy.isBoss) ctx.damage = Math.max(1, ctx.damage - 2);
+      }
+    },
+
+    // === HP / Defense / Sustain ===
     { id:'r_hpmax6', name:'頑丈な骨', price:36,
       desc:'最大HP+6（購入時）',
       onBuy(s){ s.hpMax += 6; s.hp += 6; }
+    },
+    { id:'r_hpmax10', name:'鋼の体', price:48,
+      desc:'最大HP+10（購入時）',
+      onBuy(s){ s.hpMax += 10; s.hp += 10; }
     },
     { id:'r_reduce_incoming1', name:'堅実防具', price:42,
       desc:'被ダメ-1（最低1）',
       onCalcEnemyDamage(ctx){ ctx.damage = Math.max(1, ctx.damage - 1); }
     },
+    { id:'r_opening_guard', name:'先制防壁', price:40,
+      desc:'各戦闘の最初の敵攻撃ダメージ-3（最低1）',
+      onCalcEnemyDamage(ctx){
+        const b = ctx.state.battle;
+        if(b && !b._enemyHitOnce){
+          ctx.damage = Math.max(1, ctx.damage - 3);
+          b._enemyHitOnce = true;
+        }
+      }
+    },
     { id:'r_lifesteal2', name:'血の契約', price:40,
       desc:'敵を倒した時HP+2',
       onAfterWin(s, ctx){ s.hp = Math.min(s.hpMax, s.hp + 2); }
     },
-    { id:'r_coin_power', name:'財布の底', price:34,
-      desc:'所持コインが30以上なら与ダメ+2',
-      onCalcPlayerDamage(ctx){ if(ctx.state.coins >= 30) ctx.damage += 2; }
+    { id:'r_victory_medicine', name:'勝利の軟膏', price:34,
+      desc:'戦闘勝利時、HP+1',
+      onAfterWin(s, ctx){ s.hp = Math.min(s.hpMax, s.hp + 1); }
     },
-    { id:'r_shop_discount', name:'買い物上手', price:28,
-      desc:'ショップ価格-15%',
-      onShopPrice(ctx){ ctx.price = Math.ceil(ctx.price * 0.85); }
-    },
+
+    // === Healing economy ===
     { id:'r_heal_more', name:'回復効率', price:30,
       desc:'回復量+25%',
       onHeal(ctx){ ctx.amount = Math.ceil(ctx.amount * 1.25); }
     },
+    { id:'r_heal_more2', name:'救急キット', price:44,
+      desc:'回復量+50%',
+      onHeal(ctx){ ctx.amount = Math.ceil(ctx.amount * 1.50); }
+    },
+    { id:'r_heal_after_none', name:'立て直し', price:34,
+      desc:'前のターンが役なしなら、次の回復量+20%（その回復のみ）',
+      onHeal(ctx){
+        const b = ctx.state.battle;
+        if(b && b._prevPlayerRoleType===ROLE.NONE) ctx.amount = Math.ceil(ctx.amount * 1.20);
+      }
+    },
+
+    // === Coin economy / Shop ===
+    { id:'r_shop_discount', name:'買い物上手', price:28,
+      desc:'ショップ価格-15%',
+      onShopPrice(ctx){ ctx.price = Math.ceil(ctx.price * 0.85); }
+    },
+    { id:'r_shop_discount2', name:'値切りの極意', price:44,
+      desc:'ショップ価格-25%',
+      onShopPrice(ctx){ ctx.price = Math.ceil(ctx.price * 0.75); }
+    },
+    { id:'r_gain_coin10pct', name:'強欲の利子', price:46,
+      desc:'戦闘勝利時、所持コインの10%を追加獲得',
+      onAfterWin(s, ctx){ s.coins += Math.floor(s.coins * 0.10); }
+    },
+    { id:'r_win_coin_flat', name:'祝勝金', price:30,
+      desc:'戦闘勝利時、追加コイン+8',
+      onAfterWin(s, ctx){ s.coins += 8; }
+    },
+    { id:'r_boss_bonus_coin', name:'大物狩り', price:42,
+      desc:'ボス戦勝利時、追加コイン+18',
+      onAfterWin(s, ctx){ if(ctx.enemy && ctx.enemy.isBoss) s.coins += 18; }
+    },
+
+    // === Role-based win rewards (synergy glue) ===
+    { id:'r_win_zoro_coin', name:'ゾロの褒賞', price:38,
+      desc:'ゾロ目で勝利したら追加コイン+12',
+      onAfterWin(s, ctx){ if(ctx.lastRoleType===ROLE.ZORO) s.coins += 12; }
+    },
+    { id:'r_win_normal_coin', name:'堅実な報酬', price:34,
+      desc:'通常目で勝利したら追加コイン+10',
+      onAfterWin(s, ctx){ if(ctx.lastRoleType===ROLE.NORMAL) s.coins += 10; }
+    },
+    { id:'r_win_shigoro_coin', name:'順子の報酬', price:40,
+      desc:'シゴロで勝利したら追加コイン+14',
+      onAfterWin(s, ctx){ if(ctx.lastRoleType===ROLE.SHIGORO) s.coins += 14; }
+    },
+    { id:'r_win_pin_heal', name:'奇跡の余韻', price:48,
+      desc:'ピンゾロで勝利したらHP+6',
+      onAfterWin(s, ctx){
+        if(ctx.lastRoleType===ROLE.PINZORO) s.hp = Math.min(s.hpMax, s.hp + 6);
+      }
+    },
+
+    // === “Build enablers” (small but stackable) ===
+    { id:'r_coin_on_any', name:'小銭拾い', price:22,
+      desc:'攻撃のたび追加コイン+2',
+      onCalcPlayerDamage(ctx){ ctx.coins += 2; }
+    },
+    { id:'r_damage_to_coin', name:'換金術', price:40,
+      desc:'与ダメの25%を追加コインにする（切り捨て）',
+      onCalcPlayerDamage(ctx){ ctx.coins += Math.floor(ctx.damage * 0.25); }
+    },
+    { id:'r_turn_bonus_if_role', name:'型の完成', price:38,
+      desc:'役が出ているときだけ与ダメ+1（役なし/ヒフミは対象外）',
+      onCalcPlayerDamage(ctx){
+        if(ctx.role.type!==ROLE.NONE && ctx.role.type!==ROLE.HIFUMI) ctx.damage += 1;
+      }
+    },
+    { id:'r_no_penalty_hp', name:'薄い護符', price:34,
+      desc:'ヒフミでコイン不足になってもHP減少しない（HP-1を無効）',
+      onCalcPlayerDamage(ctx){
+        if(ctx.role.type===ROLE.HIFUMI) ctx._noHpPenaltyOnHifumi = true;
+      }
+    },
+
+    // === Risk / Reward ===
+    { id:'r_gamble_power', name:'危険な賭け', price:36,
+      desc:'ヒフミのペナルティ+2（🪙-5）だが与ダメ+4（全役）',
+      onCalcPlayerDamage(ctx){
+        ctx.damage += 4;
+        if(ctx.role.type===ROLE.HIFUMI) ctx.hifumiPenalty += 2;
+      }
+    },
+    { id:'r_roll_tax', name:'焦りの代償', price:24,
+      desc:'そのターン2回目以降で確定すると追加コイン+4',
+      onCalcPlayerDamage(ctx){
+        if(ctx.turnRollUsed >= 2) ctx.coins += 4;
+      }
+    },
+
+    // === Quality / Convenience ===
+    { id:'r_start_coin', name:'出発金', price:34,
+      desc:'各戦闘開始時、コイン+4',
+      onBattleStart(s){ s.coins += 4; }
+    },
+    { id:'r_battle_start_heal', name:'応急処置', price:44,
+      desc:'各戦闘開始時、HP+2（上限まで）',
+      onBattleStart(s){ s.hp = Math.min(s.hpMax, s.hp + 2); }
+    },
+    { id:'r_boss_start_coin', name:'決戦支度', price:40,
+      desc:'ボス戦開始時、コイン+10',
+      onBattleStart(s){
+        if(s.battle && s.battle.enemy && s.battle.enemy.isBoss) s.coins += 10;
+      }
+    },
+
+    // === One more synergy pieces ===
     { id:'r_reroll_bonus', name:'粘り勝ち', price:34,
       desc:'そのターン3回目で確定すると与ダメ+3',
       onCalcPlayerDamage(ctx){
         if(ctx.turnRollUsed === ctx.state.battle.maxRolls) ctx.damage += 3;
       }
     },
-    { id:'r_gain_coin10pct', name:'強欲の利子', price:46,
-      desc:'戦闘勝利時、所持コインの10%を追加獲得',
-      onAfterWin(s, ctx){ s.coins += Math.floor(s.coins * 0.10); }
+    { id:'r_precision_bonus', name:'一点集中', price:38,
+      desc:'サイコロ1個操作（振り直し or +1）を使ったターンは与ダメ+2',
+      onCalcPlayerDamage(ctx){
+        const b = ctx.state.battle;
+        if(b && (b._usedRerollOneThisTurn || b._usedPlusOneThisTurn)) ctx.damage += 2;
+      }
+    },
+    { id:'r_endurance', name:'持久戦', price:34,
+      desc:'敵がボスでないなら被ダメ-1（最低1）',
+      onCalcEnemyDamage(ctx){
+        if(!ctx.enemy.isBoss) ctx.damage = Math.max(1, ctx.damage - 1);
+      }
+    },
+    { id:'r_finisher', name:'とどめの刃', price:46,
+      desc:'敵HPが10以下なら与ダメ+3',
+      onCalcPlayerDamage(ctx){
+        if(ctx.enemy && ctx.enemy.hp <= 10) ctx.damage += 3;
+      }
+    },
+    { id:'r_big_hit_coin', name:'大当たり手当', price:42,
+      desc:'与ダメが12以上なら追加コイン+10',
+      onCalcPlayerDamage(ctx){
+        if(ctx.damage >= 12) ctx.coins += 10;
+      }
+    },
+    { id:'r_boss_breaker', name:'破城槌', price:50,
+      desc:'ボス戦で与ダメが10以上なら追加で+4',
+      onCalcPlayerDamage(ctx){
+        if(ctx.enemy.isBoss && ctx.damage >= 10) ctx.damage += 4;
+      }
     },
   ];
+  // --------------- /RELICS ---------------
 
   const STORY = {
     intro: (name)=>[
@@ -425,6 +711,11 @@
       skills: { rerollOneLeft: 2, plusOneLeft: 1 },
       finished: false,
       pending: null,
+      _prevPlayerRoleType: null,
+      _lastPlayerRoleType: null,
+      _enemyHitOnce: false,
+      _usedRerollOneThisTurn: false,
+      _usedPlusOneThisTurn: false,
     };
     // relic battle start
     for(const r of state.relics){
@@ -503,6 +794,7 @@
     if(b.skills.rerollOneLeft<=0) return;
     b.dice[index] = randInt(1,6);
     b.skills.rerollOneLeft--;
+    b._usedRerollOneThisTurn = true;
     b.lastRole = calcRole(b.dice);
     log(`スキル：サイコロ${index+1}を振り直し → ${b.lastRole.name} [${b.dice.join(',')}]`);
     render();
@@ -514,6 +806,7 @@
     if(b.skills.plusOneLeft<=0) return;
     b.dice[index] = (b.dice[index] % 6) + 1;
     b.skills.plusOneLeft--;
+    b._usedPlusOneThisTurn = true;
     b.lastRole = calcRole(b.dice);
     log(`スキル：サイコロ${index+1}を+1 → ${b.lastRole.name} [${b.dice.join(',')}]`);
     render();
@@ -610,10 +903,17 @@
       return;
     }
 
-    // next turn reset roll count/dice? (simple: new turn = reset rollUsed to 0)
+    // ターン終了：直近の役を保存（連鎖系レリック用）
+    b._prevPlayerRoleType = b._lastPlayerRoleType;
+    b._lastPlayerRoleType = role.type;
+
+    // 次ターン開始：ロール回数・ダイス・スキル使用フラグをリセット
     b.rollUsed = 0;
     b.dice = [1,1,1];
     b.lastRole = calcRole(b.dice);
+    b._usedRerollOneThisTurn = false;
+    b._usedPlusOneThisTurn = false;
+
     log(`--- 次のターン ---`);
     render();
   }
@@ -624,7 +924,7 @@
     log(`勝利！ ${state.day}日目を生き延びた。`);
 
     // relic after win
-    const ctx = { enemy:b.enemy };
+    const ctx = { enemy:b.enemy, lastRoleType: b._lastPlayerRoleType, lastRoleValue: (b.lastRole?.value ?? 0) };
     for(const r of state.relics){
       if(r.onAfterWin) r.onAfterWin(state, ctx);
     }
@@ -702,7 +1002,7 @@
   }
 
   function openRelicReward(){
-    const choices = pickN(RELICS, 3);
+    const choices = pickRelicsExcludingOwned(3);
     const wrap = document.createElement('div');
     wrap.className = 'grid';
     const p = document.createElement('div');
@@ -743,7 +1043,7 @@
 
   // ---------- Shop ----------
   function openShop(){
-    const today = pickN(RELICS, 3);
+    const today = pickRelicsExcludingOwned(3);
     const wrap = document.createElement('div');
     wrap.className = 'grid';
     const info = document.createElement('div');
