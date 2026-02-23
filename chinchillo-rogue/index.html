@@ -864,6 +864,10 @@
 
     const role = b.lastRole;
 
+    // ターン開始時点で「今回の役」を確定して保存（勝利判定・敵攻撃軽減・連鎖用）
+    b._prevPlayerRoleType = b._lastPlayerRoleType;
+    b._lastPlayerRoleType = role.type;
+
     // Player attack
     const pa = calcPlayerAttack(role);
 
@@ -873,9 +877,13 @@
       state.coins -= pay;
       log(`ヒフミのペナルティ：🪙-${pay}`);
       if(pay < pa.hifumiPenalty){
-        const hpLoss = 1;
-        state.hp = Math.max(0, state.hp - hpLoss);
-        log(`コインが足りずHP-${hpLoss}`);
+        if(pa._noHpPenaltyOnHifumi){
+          log(`護符がHP減少を防いだ`);
+        } else {
+          const hpLoss = 1;
+          state.hp = Math.max(0, state.hp - hpLoss);
+          log(`コインが足りずHP-${hpLoss}`);
+        }
       }
     }
 
@@ -902,10 +910,6 @@
       if ($('helpBtn')) $('helpBtn').onclick = openHelp;
       return;
     }
-
-    // ターン終了：直近の役を保存（連鎖系レリック用）
-    b._prevPlayerRoleType = b._lastPlayerRoleType;
-    b._lastPlayerRoleType = role.type;
 
     // 次ターン開始：ロール回数・ダイス・スキル使用フラグをリセット
     b.rollUsed = 0;
@@ -1174,11 +1178,7 @@
         <div class="btn primary" id="retry">最初から</div>
       `;
       main.appendChild(c);
-      document.addEventListener('click', (e)=>{
-        if(e.target && e.target.id === 'helpBtn'){
-          openHelp();
-        }
-      });
+      if ($('helpBtn')) $('helpBtn').onclick = openHelp;
       c.querySelector('#retry').onclick = ()=>{ state.screen='START'; render(); };
       return;
     }
