@@ -1040,7 +1040,8 @@
       logCard.className = 'card';
       logCard.innerHTML = `<div class="h1">ログ</div><div class="log">${state.log.map(x=>`<p>${escapeHtml(x)}</p>`).join('') || '<p class="muted">（まだ何もない）</p>'}</div>`;
       main.appendChild(logCard);
-
+      
+      $('helpBtn').onclick = openHelp;
       return;
     }
   }
