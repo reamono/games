@@ -593,6 +593,7 @@
     // Check win
     if(b.enemy.hp<=0){
       onWinBattle();
+      if ($('helpBtn')) $('helpBtn').onclick = openHelp;
       return;
     }
 
@@ -605,6 +606,7 @@
 
     if(state.hp<=0){
       onLoseBattle();
+      if ($('helpBtn')) $('helpBtn').onclick = openHelp;
       return;
     }
 
@@ -801,6 +803,7 @@
     inner.innerHTML = '';
     if(!buttons || buttons.length===0){
       bar.style.display = 'none';
+      if ($('helpBtn')) $('helpBtn').onclick = openHelp;
       return;
     }
     bar.style.display = 'flex';
@@ -1041,7 +1044,7 @@
       logCard.innerHTML = `<div class="h1">ログ</div><div class="log">${state.log.map(x=>`<p>${escapeHtml(x)}</p>`).join('') || '<p class="muted">（まだ何もない）</p>'}</div>`;
       main.appendChild(logCard);
       
-      $('helpBtn').onclick = openHelp;
+      if ($('helpBtn')) $('helpBtn').onclick = openHelp;
       return;
     }
   }
