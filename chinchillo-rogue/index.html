@@ -694,6 +694,8 @@
     battle: null,
     log: [],
     logExpanded: false,
+    skills: { rerollOneLeft: 2, plusOneLeft: 1 },
+    skillBought: { rerollOne: 0, plusOne: 0 },
   };
 
   function log(msg){
@@ -732,10 +734,10 @@
       enemy,
       maxRolls: 3,
       rollUsed: 0,
-      dice: [1,1,1],
-      lastRole: calcRole([1,1,1]),
+      dice: null,           // 未ロール
+      lastRole: null,       // 未確定
       locked: false,
-      skills: { rerollOneLeft: 2, plusOneLeft: 1 },
+      skills: state.skills, // 戦闘ごとに回復しない（残数を共有）
       finished: false,
       pending: null,
       _prevPlayerRoleType: null,
@@ -818,7 +820,13 @@
   function useRerollOne(index){
     const b = state.battle;
     if(!b || b.finished) return;
+    if(!b.dice){
+      log('まだロールしていない。まずロールしよう。');
+      render();
+      return;
+    }
     if(b.skills.rerollOneLeft<=0) return;
+
     b.dice[index] = randInt(1,6);
     b.skills.rerollOneLeft--;
     b._usedRerollOneThisTurn = true;
@@ -830,7 +838,13 @@
   function usePlusOne(index){
     const b = state.battle;
     if(!b || b.finished) return;
+    if(!b.dice){
+      log('まだロールしていない。まずロールしよう。');
+      render();
+      return;
+    }
     if(b.skills.plusOneLeft<=0) return;
+
     b.dice[index] = (b.dice[index] % 6) + 1;
     b.skills.plusOneLeft--;
     b._usedPlusOneThisTurn = true;
@@ -843,6 +857,18 @@
     const b = state.battle;
     let dmg = baseDamage(role);
     let coins = dmg; // 基本：与ダメ＝獲得コイン
+    // 役ごとの追加コイン（ダメージとは別の“稼ぎ”）
+    // レア役ほど増える：シゴロ(456)は大きく、ゾロ目も伸びる
+    let roleBonusCoins = 0;
+    switch(role.type){
+      case ROLE.PINZORO: roleBonusCoins = 12; break;        // 夢
+      case ROLE.SHIGORO: roleBonusCoins = 14; break;        // 出にくいので厚め
+      case ROLE.ZORO:    roleBonusCoins = role.value * 2; break; // 2ゾロ=4, 6ゾロ=12
+      case ROLE.NORMAL:  roleBonusCoins = 2; break;         // 地味に底上げ
+      case ROLE.NONE:    roleBonusCoins = 1; break;         // 空振りでも最低限
+      case ROLE.HIFUMI:  roleBonusCoins = 0; break;
+    }
+    coins += roleBonusCoins;
     let hifumiPenalty = (role.type===ROLE.HIFUMI) ? 3 : 0;
 
     const ctx = {
@@ -889,8 +915,14 @@
     const b = state.battle;
     if(!b || b.finished) return;
 
-    const role = b.lastRole;
+    if(!b.lastRole || !b.dice){
+      log('まだロールしていない。まずロールしよう。');
+      render();
+      return;
+    }
 
+    const role = b.lastRole;
+    
     // ターン開始時点で「今回の役」を確定して保存（勝利判定・敵攻撃軽減・連鎖用）
     b._prevPlayerRoleType = b._lastPlayerRoleType;
     b._lastPlayerRoleType = role.type;
@@ -938,8 +970,8 @@
 
     // 次ターン開始：ロール回数・ダイス・スキル使用フラグをリセット
     b.rollUsed = 0;
-    b.dice = [1,1,1];
-    b.lastRole = calcRole(b.dice);
+    b.dice = null;
+    b.lastRole = null;
     b._usedRerollOneThisTurn = false;
     b._usedPlusOneThisTurn = false;
 
@@ -951,6 +983,11 @@
     const b = state.battle;
     b.finished = true;
     log(`勝利！ ${state.day}日目を生き延びた。`);
+
+    // 勝利の固定報酬（安定収入）
+    const winCoins = 10 + Math.floor(state.day / 2); // Day1=10, Day10=15
+    state.coins += winCoins;
+    log(`勝利報酬：🪙+${winCoins}`);
 
     // relic after win
     const ctx = { enemy:b.enemy, lastRoleType: b._lastPlayerRoleType, lastRoleValue: (b.lastRole?.value ?? 0) };
@@ -1071,6 +1108,36 @@
     }[c]));
   }
 
+  function openRelicInfoById(relicId){
+    const r = state.relics.find(x=>x.id===relicId) || getRelicById(relicId);
+    if(!r) return;
+
+    const wrap = document.createElement('div');
+    wrap.className = 'grid';
+
+    const box = document.createElement('div');
+    box.className = 'choice';
+    box.innerHTML = `
+      <div class="choiceTitle">${escapeHtml(r.name)}</div>
+      <div class="choiceDesc">${escapeHtml(r.desc)}</div>
+    `;
+    wrap.appendChild(box);
+
+    const close = document.createElement('div');
+    close.className = 'btn primary';
+    close.textContent = '閉じる';
+    close.onclick = closeModal;
+    wrap.appendChild(close);
+
+    showModal('レリック詳細', wrap);
+  }
+
+  function bindRelicChipClicks(container){
+    container.querySelectorAll('[data-relic-id]').forEach(el=>{
+      el.onclick = () => openRelicInfoById(el.getAttribute('data-relic-id'));
+    });
+  }
+
   // ---------- Shop ----------
   function openShop(){
     const today = pickRelicsExcludingOwned(3);
@@ -1101,6 +1168,48 @@
       grid.appendChild(c);
     });
     wrap.appendChild(grid);
+
+    // --- スキル購入（振り直し / +1） ---
+    const skillCard = document.createElement('div');
+    skillCard.className = 'choice';
+    const priceR = 8 + state.skillBought.rerollOne * 4; // 買うほど上がる
+    const priceP = 10 + state.skillBought.plusOne * 5;
+
+    skillCard.innerHTML = `
+      <div class="choiceTitle">スキル回数を購入</div>
+      <div class="choiceDesc">残り：振り直し ${state.skills.rerollOneLeft} / +1 ${state.skills.plusOneLeft}</div>
+      <div style="height:8px"></div>
+      <div class="row">
+        <div class="col"><div class="btn" id="buyReroll">振り直し +1（🪙${priceR}）</div></div>
+        <div class="col"><div class="btn" id="buyPlus">+1 +1（🪙${priceP}）</div></div>
+      </div>
+      <div class="hint">※戦闘ごとに自動回復しません。買い足して運用します。</div>
+    `;
+    wrap.appendChild(skillCard);
+
+    const buyR = skillCard.querySelector('#buyReroll');
+    buyR.setAttribute('aria-disabled', state.coins < priceR ? 'true' : 'false');
+    buyR.onclick = () => {
+      if(state.coins < priceR) return;
+      state.coins -= priceR;
+      state.skills.rerollOneLeft += 1;
+      state.skillBought.rerollOne += 1;
+      log(`スキル購入：振り直し +1（🪙-${priceR}）`);
+      closeModal();
+      render();
+    };
+
+    const buyP = skillCard.querySelector('#buyPlus');
+    buyP.setAttribute('aria-disabled', state.coins < priceP ? 'true' : 'false');
+    buyP.onclick = () => {
+      if(state.coins < priceP) return;
+      state.coins -= priceP;
+      state.skills.plusOneLeft += 1;
+      state.skillBought.plusOne += 1;
+      log(`スキル購入：+1 +1（🪙-${priceP}）`);
+      closeModal();
+      render();
+    };
 
     const close = document.createElement('div');
     close.className = 'btn';
@@ -1182,6 +1291,8 @@
         state.relics = [];
         state.shopBoughtToday = false;
         state.log = [];
+        state.skills = { rerollOneLeft: 2, plusOneLeft: 1 };
+        state.skillBought = { rerollOne: 0, plusOne: 0 };
         showStoryModal('プロローグ', STORY.intro(name), () => {
           render(true);
         });
@@ -1244,11 +1355,14 @@
         <div class="divider"></div>
         <div class="muted">所持レリック（${state.relics.length}）</div>
         <div style="height:8px"></div>
-        <div class="chips">${state.relics.map(r=>`<div class="chip">${escapeHtml(r.name)}</div>`).join('') || '<div class="chip">なし</div>'}</div>
+        <div class="chips">
+          ${state.relics.map(r=>`<div class="chip" data-relic-id="${escapeHtml(r.id)}">${escapeHtml(r.name)}</div>`).join('') || '<div class="chip">なし</div>'}
+        </div>
         <div class="divider"></div>
         <div class="muted">今日の敵：<b>${escapeHtml(enemy.name)}</b>（HP ${enemy.hp}/${enemy.hpMax}） ${isBoss ? '<span class="muted">[BOSS]</span>' : ''}</div>
       `;
       main.appendChild(prep);
+      bindRelicChipClicks(prep);
 
       const cost = healCost();
       const amt = healAmount();
@@ -1294,11 +1408,18 @@
         <div class="h1">戦闘（Day ${state.day}）</div>
         <div class="muted"><b>${escapeHtml(enemy.name)}</b> HP ${enemy.hp}/${enemy.hpMax}</div>
 
+        <div style="height:8px"></div>
+        <div class="muted">所持レリック（タップで詳細）</div>
+        <div style="height:6px"></div>
+        <div class="chips">
+          ${state.relics.map(r=>`<div class="chip" data-relic-id="${escapeHtml(r.id)}">${escapeHtml(r.name)}</div>`).join('') || '<div class="chip">なし</div>'}
+        </div>
+
         <div class="divider"></div>
 
-        <div class="muted">あなたのロール：<b>${escapeHtml(b.lastRole.name)}</b>（${b.rollUsed}/${b.maxRolls}）</div>
+        <div class="muted">あなたのロール：<b>${b.lastRole ? escapeHtml(b.lastRole.name) : '未ロール'}</b>（${b.rollUsed}/${b.maxRolls}）</div>
         <div class="diceRow">
-          ${b.dice.map((v,i)=>`<div class="die" data-die="${i}">${v}</div>`).join('')}
+          ${(b.dice ?? [null,null,null]).map((v,i)=>`<div class="die" data-die="${i}">${v ?? '？'}</div>`).join('')}
         </div>
 
         <div class="hint">スキル（少しだけ操作）：サイコロ1個を「振り直し」or「+1」</div>
@@ -1313,24 +1434,9 @@
         </div>
 
         <div class="divider"></div>
-
-        <div class="muted">操作</div>
-        <div class="row">
-          <div class="col"><div class="btn warn" id="rollBtn">ロール（全振り）</div></div>
-          <div class="col"><div class="btn ok" id="confirmBtn">確定して攻撃</div></div>
-        </div>
-
-        <div class="divider"></div>
-        <div class="muted">ヒント：最大3回まで全振り。良い役が出たら確定。</div>
       `;
       main.appendChild(battle);
-
-      const rollBtn = battle.querySelector('#rollBtn');
-      rollBtn.setAttribute('aria-disabled', (b.rollUsed>=b.maxRolls) ? 'true' : 'false');
-      rollBtn.onclick = rollAll;
-
-      const confirmBtn = battle.querySelector('#confirmBtn');
-      confirmBtn.onclick = confirmRole;
+      bindRelicChipClicks(battle);
 
       // skill: choose a die by tapping it (simple)
       let selectedDie = 0;
@@ -1365,6 +1471,7 @@
       b2.className = 'btn ok';
       b2.textContent = '確定';
       b2.onclick = confirmRole;
+      b2.setAttribute('aria-disabled', (!b.lastRole || !b.dice) ? 'true' : 'false');
 
       setBar([b1,b2]);
 
