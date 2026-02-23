@@ -153,16 +153,32 @@
     @media (min-width:520px){
       .grid3{grid-template-columns:1fr 1fr 1fr;}
     }
+    .helpBtn{
+      width:40px; height:40px;
+      border-radius:14px;
+      display:flex; align-items:center; justify-content:center;
+      background:rgba(255,255,255,.06);
+      border:1px solid rgba(255,255,255,.12);
+      box-shadow: 0 10px 18px rgba(0,0,0,.18);
+      font-weight:900;
+      cursor:pointer;
+      user-select:none;
+    }
+    .helpBtn:active{ transform: scale(.99); }
   </style>
 </head>
 <body>
   <div class="app">
     <div class="topbar">
       <div class="title" id="topTitle">チンチロ・ダンジョン</div>
-      <div class="stats">
-        <div class="pill">Day <span id="day">-</span>/10</div>
-        <div class="pill">HP <span id="hp">-</span>/<span id="hpMax">-</span></div>
-        <div class="pill">🪙 <span id="coin">-</span></div>
+
+      <div style="display:flex; align-items:center; gap:10px;">
+        <div class="helpBtn" id="helpBtn" aria-label="ヘルプ">？</div>
+        <div class="stats">
+          <div class="pill">Day <span id="day">-</span>/10</div>
+          <div class="pill">HP <span id="hp">-</span>/<span id="hpMax">-</span></div>
+          <div class="pill">🪙 <span id="coin">-</span></div>
+        </div>
       </div>
     </div>
 
@@ -855,6 +871,11 @@
         <div class="btn primary" id="retry">最初から</div>
       `;
       main.appendChild(c);
+      document.addEventListener('click', (e)=>{
+        if(e.target && e.target.id === 'helpBtn'){
+          openHelp();
+        }
+      });
       c.querySelector('#retry').onclick = ()=>{ state.screen='START'; render(); };
       return;
     }
@@ -1022,6 +1043,60 @@
 
       return;
     }
+  }
+
+  function openHelp(){
+    const wrap = document.createElement('div');
+    wrap.className = 'grid';
+
+    const box = document.createElement('div');
+    box.className = 'log';
+    box.innerHTML = `
+      <p><b>ルール（概要）</b><br>
+      ・10日目のボスを倒せばクリア。HPが0でゲームオーバー。<br>
+      ・1日=1戦闘。毎日「準備フェーズ → 戦闘」。</p>
+
+      <p><b>戦闘の流れ</b><br>
+      ①あなたがサイコロ3個を振る（最大3回まで全振り直しOK）<br>
+      ②「確定して攻撃」を押すと、その役で攻撃＆コイン獲得<br>
+      ③敵もサイコロを振って攻撃（被ダメはHPのみ減少）</p>
+
+      <p><b>点数（ダメージ）計算</b><br>
+      ・基本：<b>与ダメ＝獲得コイン</b><br>
+      ・役は以下の通り：</p>
+
+      <p>
+      <b>ピンゾロ（1,1,1）</b>：ダメージ 12<br>
+      <b>シゴロ（4,5,6）</b>：ダメージ 10<br>
+      <b>ゾロ目（2〜6の3つ揃い）</b>：ダメージ = 目×2（例：6ゾロ→12）<br>
+      <b>通常目（同じ目2つ＋残り1つ）</b>：ダメージ = 残りの目（例：2,2,5→5）<br>
+      <b>役なし</b>：ダメージ 0<br>
+      <b>ヒフミ（1,2,3）</b>：ダメージ 0 ＋ ペナルティ（基本🪙-3 / 足りない場合HP-1）
+      </p>
+
+      <p><b>スキル（少しだけ出目操作）</b><br>
+      ・サイコロ1個「振り直し」：1戦闘で2回まで<br>
+      ・サイコロ1個「+1」：1戦闘で1回まで（6→1）</p>
+
+      <p><b>回復</b><br>
+      ・初回無料。使うほどコスト増加。<br>
+      ・回復量：最大HPの約30%（レリックで増えることあり）</p>
+
+      <p><b>レリック</b><br>
+      ・ショップで高価に購入（1日1つまで）<br>
+      ・勝利後、確率でレリック3択が出ることがある</p>
+
+      <p class="muted">※バランス調整で数値は今後変わる可能性があります。</p>
+    `;
+    wrap.appendChild(box);
+
+    const close = document.createElement('div');
+    close.className = 'btn primary';
+    close.textContent = '閉じる';
+    close.onclick = () => closeModal();
+    wrap.appendChild(close);
+
+    showModal('ヘルプ', wrap);
   }
 
   // ---------- Start ----------
